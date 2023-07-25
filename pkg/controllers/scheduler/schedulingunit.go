@@ -94,9 +94,7 @@ func schedulingUnitForFedObject(
 		}
 	}
 
-	if replicaRescheduling := policy.GetSpec().ReplicaRescheduling; replicaRescheduling != nil {
-		schedulingUnit.AvoidDisruption = replicaRescheduling.AvoidDisruption
-	}
+	schedulingUnit.AvoidDisruption = getIsAvoidDisruptionFromPolicy(policy)
 
 	schedulingUnit.SchedulingMode = schedulingMode
 
@@ -243,7 +241,17 @@ func getAutoMigrationInfo(fedObject fedcorev1a1.GenericFederatedObject) (*framew
 }
 
 func getIsStickyClusterFromPolicy(policy fedcorev1a1.GenericPropagationPolicy) bool {
+	if rp := policy.GetSpec().ReschedulePolicy; rp != nil {
+		return rp.DisableRescheduling
+	}
 	return policy.GetSpec().StickyCluster
+}
+
+func getIsAvoidDisruptionFromPolicy(policy fedcorev1a1.GenericPropagationPolicy) bool {
+	if rp := policy.GetSpec().ReschedulePolicy; rp != nil {
+		return rp.ReplicaRescheduling != nil && rp.ReplicaRescheduling.AvoidDisruption
+	}
+	return policy.GetSpec().ReplicaRescheduling != nil && policy.GetSpec().ReplicaRescheduling.AvoidDisruption
 }
 
 func getIsStickyClusterFromObject(object fedcorev1a1.GenericFederatedObject) (bool, bool) {

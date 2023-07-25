@@ -22,8 +22,6 @@ import (
 	"sync"
 	"time"
 
-	appsv1 "k8s.io/api/apps/v1"
-	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
@@ -47,6 +45,7 @@ import (
 	"github.com/kubewharf/kubeadmiral/pkg/util/informermanager"
 	"github.com/kubewharf/kubeadmiral/pkg/util/logging"
 	"github.com/kubewharf/kubeadmiral/pkg/util/naming"
+	podutil "github.com/kubewharf/kubeadmiral/pkg/util/pod"
 	"github.com/kubewharf/kubeadmiral/pkg/util/worker"
 )
 
@@ -60,28 +59,13 @@ const (
 	EventReasonFailedUpdateFollower = "FailedUpdateFollower"
 )
 
-var (
-	// Map from supported leader type to pod spec path.
-	// TODO: think about whether PodTemplatePath/PodSpecPath should be specified in the FTC instead.
-	// Specifying in the FTC allows changing the path according to the api version.
-	// Other controllers should consider using the specified paths instead of hardcoded paths.
-	leaderPodSpecPaths = map[schema.GroupKind]string{
-		{Group: appsv1.GroupName, Kind: common.DeploymentKind}:  "spec.template.spec",
-		{Group: appsv1.GroupName, Kind: common.StatefulSetKind}: "spec.template.spec",
-		{Group: appsv1.GroupName, Kind: common.DaemonSetKind}:   "spec.template.spec",
-		{Group: batchv1.GroupName, Kind: common.JobKind}:        "spec.template.spec",
-		{Group: batchv1.GroupName, Kind: common.CronJobKind}:    "spec.jobTemplate.spec.template.spec",
-		{Group: "", Kind: common.PodKind}:                       "spec",
-	}
-
-	supportedFollowerTypes = sets.New(
-		schema.GroupKind{Group: "", Kind: common.ConfigMapKind},
-		schema.GroupKind{Group: "", Kind: common.SecretKind},
-		schema.GroupKind{Group: "", Kind: common.PersistentVolumeClaimKind},
-		schema.GroupKind{Group: "", Kind: common.ServiceAccountKind},
-		schema.GroupKind{Group: "", Kind: common.ServiceKind},
-		schema.GroupKind{Group: networkingv1.GroupName, Kind: common.IngressKind},
-	)
+var supportedFollowerTypes = sets.New(
+	schema.GroupKind{Group: "", Kind: common.ConfigMapKind},
+	schema.GroupKind{Group: "", Kind: common.SecretKind},
+	schema.GroupKind{Group: "", Kind: common.PersistentVolumeClaimKind},
+	schema.GroupKind{Group: "", Kind: common.ServiceAccountKind},
+	schema.GroupKind{Group: "", Kind: common.ServiceKind},
+	schema.GroupKind{Group: networkingv1.GroupName, Kind: common.IngressKind},
 )
 
 // TODO: limit max number of leaders per follower to prevent oversized follower objects?
@@ -202,7 +186,7 @@ func (c *Controller) enqueueSupportedType(object interface{}) {
 	}
 
 	templateGK := template.GroupVersionKind().GroupKind()
-	_, isLeader := leaderPodSpecPaths[templateGK]
+	_, isLeader := podutil.PodSpecPaths[templateGK]
 	isFollower := supportedFollowerTypes.Has(templateGK)
 	if isLeader || isFollower {
 		c.worker.Enqueue(objectGroupKindKey{
@@ -215,7 +199,7 @@ func (c *Controller) enqueueSupportedType(object interface{}) {
 }
 
 func (c *Controller) reconcile(ctx context.Context, key objectGroupKindKey) (status worker.Result) {
-	if _, exists := leaderPodSpecPaths[key.sourceGK]; exists {
+	if _, exists := podutil.PodSpecPaths[key.sourceGK]; exists {
 		return c.reconcileLeader(ctx, key)
 	}
 
@@ -327,7 +311,7 @@ func (c *Controller) inferFollowers(
 
 	followersFromPodSpec, err := getFollowersFromPodSpec(
 		fedObj,
-		leaderPodSpecPaths[sourceGK],
+		podutil.PodSpecPaths[sourceGK],
 	)
 	if err != nil {
 		return nil, err
@@ -451,7 +435,7 @@ func (c *Controller) getLeaderObj(
 	leader fedcorev1a1.LeaderReference,
 ) (fedcorev1a1.GenericFederatedObject, error) {
 	leaderGK := leader.GroupKind()
-	_, exists := leaderPodSpecPaths[leaderGK]
+	_, exists := podutil.PodSpecPaths[leaderGK]
 	if !exists {
 		return nil, fmt.Errorf("unsupported leader type %v", leaderGK)
 	}
