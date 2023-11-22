@@ -13,6 +13,7 @@ import (
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	genericapirequest "k8s.io/apiserver/pkg/endpoints/request"
 	"k8s.io/apiserver/pkg/registry/rest"
 	v1listers "k8s.io/client-go/listers/core/v1"
 	"k8s.io/klog/v2"
@@ -97,7 +98,13 @@ func (m *NodeMetrics) nodes(ctx context.Context, options *metainternalversion.Li
 }
 
 // Get implements rest.Getter interface
-func (m *NodeMetrics) Get(ctx context.Context, name string, opts *metav1.GetOptions) (runtime.Object, error) {
+func (m *NodeMetrics) Get(ctx context.Context, _ string, opts *metav1.GetOptions) (runtime.Object, error) {
+	requestInfo, found := genericapirequest.RequestInfoFrom(ctx)
+	if !found {
+		return nil, fmt.Errorf("no RequestInfo found in the context")
+	}
+	_, name := getNamespaceName(requestInfo.Parts, false)
+
 	node, err := m.nodeLister.Get(name)
 	if err != nil {
 		if errors.IsNotFound(err) {

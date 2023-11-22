@@ -18,7 +18,9 @@ package hpaaggregatorapiserver
 
 import (
 	"context"
+	"fmt"
 	"path"
+	"time"
 
 	"k8s.io/apimachinery/pkg/apis/meta/internalversion"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -31,6 +33,7 @@ import (
 	genericapiserver "k8s.io/apiserver/pkg/server"
 	dynamicclient "k8s.io/client-go/dynamic"
 	kubeclient "k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/tools/cache"
 	"k8s.io/klog/v2"
 	"k8s.io/metrics/pkg/apis/metrics"
 	metricsinstall "k8s.io/metrics/pkg/apis/metrics/install"
@@ -39,6 +42,7 @@ import (
 	"github.com/kubewharf/kubeadmiral/pkg/apis/hpaaggregator/install"
 	"github.com/kubewharf/kubeadmiral/pkg/apis/hpaaggregator/v1alpha1"
 	fedclient "github.com/kubewharf/kubeadmiral/pkg/client/clientset/versioned"
+	fedinformers "github.com/kubewharf/kubeadmiral/pkg/client/informers/externalversions"
 	"github.com/kubewharf/kubeadmiral/pkg/hpaaggregatorapiserver/metrics/resource"
 	"github.com/kubewharf/kubeadmiral/pkg/registry"
 	"github.com/kubewharf/kubeadmiral/pkg/registry/hpaaggregator/aggregation"
@@ -91,6 +95,7 @@ type ExtraConfig struct {
 	FedClientset     fedclient.Interface
 
 	FederatedInformerManager informermanager.FederatedInformerManager
+	FedInformerFactory       fedinformers.SharedInformerFactory
 }
 
 // Config defines the config for the apiserver
@@ -177,6 +182,17 @@ func (c completedConfig) New() (*Server, error) {
 	return s, nil
 }
 
-func (e *ExtraConfig) Run(ctx context.Context) {
+func (e *ExtraConfig) Run(ctx context.Context) error {
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+
+	e.FedInformerFactory.Start(ctx.Done())
 	e.FederatedInformerManager.Start(ctx)
+
+	if !cache.WaitForNamedCacheSync("hpa-aggregator", ctx.Done(), e.FederatedInformerManager.HasSynced) {
+		klog.Error("Timed out waiting for cache sync")
+		return fmt.Errorf("failed to wait for cache sync")
+	}
+	klog.Info("FederatedInformerManager started")
+	return nil
 }

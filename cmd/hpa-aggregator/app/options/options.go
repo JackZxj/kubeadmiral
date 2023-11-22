@@ -39,6 +39,7 @@ import (
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/klog/v2"
+	restfulcommon "k8s.io/kube-openapi/pkg/common"
 	netutils "k8s.io/utils/net"
 
 	fedcorev1a1 "github.com/kubewharf/kubeadmiral/pkg/apis/core/v1alpha1"
@@ -150,6 +151,9 @@ func (o *Options) Config() (*apiserver.Config, error) {
 		openapi.NewDefinitionNamer(apiserver.Scheme),
 	)
 	serverConfig.OpenAPIConfig.Info.Title = openAPITitle
+	serverConfig.OpenAPIConfig.GetOperationIDAndTagsFromRoute = func(r restfulcommon.Route) (string, []string, error) {
+		return r.OperationName() + r.Path(), nil, nil
+	}
 
 	if utilfeature.DefaultFeatureGate.Enabled(features.OpenAPIV3) {
 		serverConfig.OpenAPIV3Config = genericapiserver.DefaultOpenAPIV3Config(
@@ -157,6 +161,9 @@ func (o *Options) Config() (*apiserver.Config, error) {
 			openapi.NewDefinitionNamer(apiserver.Scheme),
 		)
 		serverConfig.OpenAPIV3Config.Info.Title = openAPITitle
+		serverConfig.OpenAPIV3Config.GetOperationIDAndTagsFromRoute = func(r restfulcommon.Route) (string, []string, error) {
+			return r.OperationName() + r.Path(), nil, nil
+		}
 	}
 
 	if err := o.RecommendedOptions.ApplyTo(serverConfig); err != nil {
@@ -205,10 +212,11 @@ func (o *Options) Config() (*apiserver.Config, error) {
 	config := &apiserver.Config{
 		GenericConfig: serverConfig,
 		ExtraConfig: &apiserver.ExtraConfig{
-			APIServerEndpoint:        serverConfig.LoopbackClientConfig.Host,
+			APIServerEndpoint:        restConfig.Host,
 			KubeClientset:            kubeClientset,
 			DynamicClientset:         dynamicClientset,
 			FedClientset:             fedClientset,
+			FedInformerFactory:       fedInformerFactory,
 			FederatedInformerManager: federatedInformerManager,
 		},
 	}

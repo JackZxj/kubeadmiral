@@ -50,6 +50,7 @@ func (p *PodLister) List(selector labels.Selector) (ret []runtime.Object, err er
 			ret = append(ret, pod)
 		}
 	}
+	fmt.Println("list pod", selector, ret)
 	return ret, nil
 }
 
@@ -73,10 +74,12 @@ func (p *PodNamespaceLister) List(selector labels.Selector) (ret []runtime.Objec
 	for _, cluster := range clusters {
 		podLister, podsSynced, exists := p.federatedInformerManager.GetPodLister(cluster.Name)
 		if !exists || !podsSynced() {
+			fmt.Println("pod lister failed", exists, podsSynced(), cluster.Name)
 			continue
 		}
 		pods, err := podLister.Pods(p.namespace).List(selector)
 		if err != nil {
+			fmt.Println("list namespace pod failed", selector, p.namespace, err)
 			continue
 		}
 		for i := range pods {
@@ -84,7 +87,12 @@ func (p *PodNamespaceLister) List(selector labels.Selector) (ret []runtime.Objec
 			MakeObjectUnique(pod, cluster.Name)
 			ret = append(ret, pod)
 		}
+		fmt.Println("list namespace pod cluster", cluster, p.namespace, ret)
+		if len(ret) == 0 {
+			fmt.Println(podLister.Pods("default").List(labels.Everything()))
+		}
 	}
+	fmt.Println("list namespace pod", selector, p.namespace, ret)
 	return ret, nil
 }
 
@@ -103,13 +111,17 @@ func (p *PodNamespaceLister) Get(name string) (runtime.Object, error) {
 		if err != nil {
 			continue
 		}
+		fmt.Println("get pod #### pod list", cluster, pods)
 		for i := range pods {
 			if name == GenUniqueName(cluster, pods[i].Name) {
 				pod := pods[i].DeepCopy()
 				MakeObjectUnique(pod, cluster)
+				fmt.Println("get pod", name, pod)
 				return pod, nil
 			}
 		}
 	}
+	fmt.Println("get pod", name, clusters)
+	fmt.Println(p.federatedInformerManager.GetJoinedClusters())
 	return nil, errors.NewNotFound(corev1.Resource("pod"), name)
 }

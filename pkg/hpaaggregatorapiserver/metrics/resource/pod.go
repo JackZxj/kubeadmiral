@@ -21,6 +21,7 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/meta"
 	metainternalversion "k8s.io/apimachinery/pkg/apis/meta/internalversion"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	metav1beta1 "k8s.io/apimachinery/pkg/apis/meta/v1beta1"
@@ -81,6 +82,7 @@ func (m *PodMetrics) List(ctx context.Context, options *metainternalversion.List
 	if err != nil {
 		return &metrics.PodMetricsList{}, err
 	}
+	fmt.Println("######metrics pods", pods)
 	ms, err := m.getMetrics(pods...)
 	if err != nil {
 		namespace := genericapirequest.NamespaceValue(ctx)
@@ -95,24 +97,50 @@ func (m *PodMetrics) pods(ctx context.Context, options *metainternalversion.List
 	if options != nil && options.LabelSelector != nil {
 		labelSelector = options.LabelSelector
 	}
+	requestInfo, found := genericapirequest.RequestInfoFrom(ctx)
+	if !found {
+		return nil, fmt.Errorf("no RequestInfo found in the context")
+	}
+	namespace, _ := getNamespaceName(requestInfo.Parts, true)
 
-	namespace := genericapirequest.NamespaceValue(ctx)
 	pods, err := m.podLister.ByNamespace(namespace).List(labelSelector)
 	if err != nil {
 		klog.ErrorS(err, "Failed listing pods", "labelSelector", labelSelector, "namespace", klog.KRef("", namespace))
 		return nil, fmt.Errorf("failed listing pods: %w", err)
 	}
-	if options != nil && options.FieldSelector != nil {
-		pods = filterPartialObjectMetadata(pods, options.FieldSelector)
+
+	partialPods := make([]runtime.Object, 0, len(pods))
+	for _, obj := range pods {
+		var partialObj *metav1.PartialObjectMetadata
+		switch t := obj.(type) {
+		case *metav1.PartialObjectMetadata:
+			partialObj = t
+		case metav1.Object:
+			partialObj = meta.AsPartialObjectMetadata(t)
+		default:
+			continue
+		}
+		partialPods = append(partialPods, partialObj)
 	}
-	return pods, err
+	fmt.Println("#### partial pods", partialPods)
+	fmt.Println("#### options pods", options)
+
+	if options != nil && options.FieldSelector != nil {
+		fmt.Println("#### options pods!!!!")
+		partialPods = filterPartialObjectMetadata(partialPods, options.FieldSelector)
+	}
+	return partialPods, err
 }
 
 // Get implements rest.Getter interface
-func (m *PodMetrics) Get(ctx context.Context, name string, opts *metav1.GetOptions) (runtime.Object, error) {
-	namespace := genericapirequest.NamespaceValue(ctx)
+func (m *PodMetrics) Get(ctx context.Context, _ string, opts *metav1.GetOptions) (runtime.Object, error) {
+	requestInfo, found := genericapirequest.RequestInfoFrom(ctx)
+	if !found {
+		return nil, fmt.Errorf("no RequestInfo found in the context")
+	}
+	namespace, name := getNamespaceName(requestInfo.Parts, true)
 
-	pod, err := m.podLister.ByNamespace(namespace).Get(name)
+	obj, err := m.podLister.ByNamespace(namespace).Get(name)
 	if err != nil {
 		if errors.IsNotFound(err) {
 			// return not-found errors directly
@@ -121,11 +149,15 @@ func (m *PodMetrics) Get(ctx context.Context, name string, opts *metav1.GetOptio
 		klog.ErrorS(err, "Failed getting pod", "pod", klog.KRef(namespace, name))
 		return &metrics.PodMetrics{}, fmt.Errorf("failed getting pod: %w", err)
 	}
-	if pod == nil {
+	if obj == nil {
 		return &metrics.PodMetrics{}, errors.NewNotFound(corev1.Resource("pods"), fmt.Sprintf("%s/%s", namespace, name))
 	}
+	pod, ok := obj.(*corev1.Pod)
+	if !ok {
+		return nil, fmt.Errorf("unexpected type %T", pod)
+	}
 
-	ms, err := m.getMetrics(pod)
+	ms, err := m.getMetrics(meta.AsPartialObjectMetadata(pod))
 	if err != nil {
 		klog.ErrorS(err, "Failed reading pod metrics", "pod", klog.KRef(namespace, name))
 		return nil, fmt.Errorf("failed pod metrics: %w", err)
@@ -165,6 +197,7 @@ func (m *PodMetrics) getMetrics(pods ...runtime.Object) ([]metrics.PodMetrics, e
 	if err != nil {
 		return nil, err
 	}
+	fmt.Println("######metrics", ms)
 	for _, m := range ms {
 		metricFreshness.WithLabelValues().Observe(myClock.Since(m.Timestamp.Time).Seconds())
 	}
@@ -185,4 +218,25 @@ func (m *PodMetrics) NamespaceScoped() bool {
 // GetSingularName implements rest.SingularNameProvider interface
 func (m *PodMetrics) GetSingularName() string {
 	return "pod"
+}
+
+// getNamespaceName returns ns and name form request parts.
+// example:
+// [aggregation apis metrics.k8s.io v1beta1 namespaces default pods test] -> default test
+// [aggregation apis metrics.k8s.io v1beta1 nodes test] -> "" test
+func getNamespaceName(parts []string, namespaced bool) (ns string, name string) {
+	namespaceIndex, nameIndex := 5, 7
+	if !namespaced {
+		namespaceIndex, nameIndex = -1, 5
+	}
+
+	if namespaced &&
+		len(parts) > namespaceIndex &&
+		parts[namespaceIndex-1] == "namespaces" {
+		ns = parts[namespaceIndex]
+	}
+	if len(parts) > nameIndex {
+		name = parts[nameIndex]
+	}
+	return ns, name
 }

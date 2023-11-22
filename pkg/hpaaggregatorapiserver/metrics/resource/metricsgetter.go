@@ -12,6 +12,7 @@ import (
 	"k8s.io/metrics/pkg/apis/metrics"
 	metricsv1beta1 "k8s.io/metrics/pkg/apis/metrics/v1beta1"
 
+	"github.com/kubewharf/kubeadmiral/pkg/controllers/common"
 	"github.com/kubewharf/kubeadmiral/pkg/hpaaggregatorapiserver/aggregatedlister"
 	"github.com/kubewharf/kubeadmiral/pkg/util/informermanager"
 )
@@ -40,12 +41,15 @@ func (m *metricsGetter) GetPodMetrics(pods ...*metav1.PartialObjectMetadata) ([]
 	if err != nil {
 		return nil, err
 	}
-	clusters := make(map[string][]string, len(pods))
+	clusters := make(map[string][]common.QualifiedName, len(pods))
 	for _, pod := range pods {
 		cluster := pod.Annotations[aggregatedlister.ClusterNameAnnotationKey]
 		rawName := pod.Annotations[aggregatedlister.RawNameAnnotationKey]
 		if cluster != "" && rawName != "" {
-			clusters[cluster] = append(clusters[cluster], rawName)
+			clusters[cluster] = append(clusters[cluster], common.QualifiedName{
+				Namespace: pod.Namespace,
+				Name:      rawName,
+			})
 		}
 	}
 
@@ -70,7 +74,9 @@ func (m *metricsGetter) GetPodMetrics(pods ...*metav1.PartialObjectMetadata) ([]
 			}
 			clusterMetrics := make([]metrics.PodMetrics, 0, len(pods))
 			for _, pod := range pods {
-				unsMetric, err := client.Resource(podMetricsGVR).Get(ctx, pod, metav1.GetOptions{})
+				unsMetric, err := client.Resource(podMetricsGVR).
+					Namespace(pod.Namespace).
+					Get(ctx, pod.Name, metav1.GetOptions{})
 				if err != nil {
 					logger.V(4).Info("Failed reading pod metrics", "pod", pod, "err", err)
 					continue

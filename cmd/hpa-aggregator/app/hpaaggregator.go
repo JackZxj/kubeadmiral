@@ -22,8 +22,7 @@ func Run(ctx context.Context, opts *options.Options) error {
 
 	server.GenericAPIServer.AddPostStartHookOrDie("start-hpa-aggregator-server-informers", func(context genericapiserver.PostStartHookContext) error {
 		config.GenericConfig.SharedInformerFactory.Start(context.StopCh)
-		config.ExtraConfig.Run(ctx)
-		return nil
+		return config.ExtraConfig.Run(ctx)
 	})
 
 	return server.GenericAPIServer.PrepareRun().Run(ctx.Done())
