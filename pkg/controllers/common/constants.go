@@ -116,6 +116,14 @@ const (
 	TemplateGeneratorMergePatchAnnotation = FederateControllerPrefix + "template-generator-merge-patch"
 
 	LatestReplicasetDigestsAnnotation = DefaultPrefix + "latest-replicaset-digests"
+
+	HPAScaleTargetRefPath = DefaultPrefix + "scale-target-ref-path"
+)
+
+// The following consts are labels key-values used by Kubeadmiral controllers.
+
+const (
+	CentralizedHPAEnableKey = DefaultPrefix + "centralized-hpa-enabled"
 )
 
 // PropagatedAnnotationKeys and PropagatedLabelKeys are used to store the keys of annotations and labels that are present
