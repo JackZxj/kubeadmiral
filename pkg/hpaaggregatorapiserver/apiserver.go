@@ -181,7 +181,7 @@ func (c completedConfig) New() (*Server, error) {
 	); err != nil {
 		return nil, err
 	}
-	c.ExtraConfig.RequestInfoResolver.InsertCustomPrefixes(root)
+	c.ExtraConfig.RequestInfoResolver.InsertCustomPrefixes(serverconfig.NewDefaultResolver(root))
 
 	return s, nil
 }
