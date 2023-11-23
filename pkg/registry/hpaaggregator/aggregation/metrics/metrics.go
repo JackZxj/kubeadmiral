@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package aggregation
+package metrics
 
 //const (
 //	ResourceGroupName = "metrics.k8s.io"
@@ -87,4 +87,3 @@ package aggregation
 //		},
 //	}
 //}
-

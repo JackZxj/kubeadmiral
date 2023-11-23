@@ -211,24 +211,3 @@ func (m *PodMetrics) NamespaceScoped() bool {
 func (m *PodMetrics) GetSingularName() string {
 	return "pod"
 }
-
-// getNamespaceName returns ns and name form request parts.
-// example:
-// [aggregation apis metrics.k8s.io v1beta1 namespaces default pods test] -> default test
-// [aggregation apis metrics.k8s.io v1beta1 nodes test] -> "" test
-func getNamespaceName(parts []string, namespaced bool) (ns string, name string) {
-	namespaceIndex, nameIndex := 5, 7
-	if !namespaced {
-		namespaceIndex, nameIndex = -1, 5
-	}
-
-	if namespaced &&
-		len(parts) > namespaceIndex &&
-		parts[namespaceIndex-1] == "namespaces" {
-		ns = parts[namespaceIndex]
-	}
-	if len(parts) > nameIndex {
-		name = parts[nameIndex]
-	}
-	return ns, name
-}

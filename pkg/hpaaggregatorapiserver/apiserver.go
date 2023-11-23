@@ -43,10 +43,10 @@ import (
 	"github.com/kubewharf/kubeadmiral/pkg/apis/hpaaggregator/v1alpha1"
 	fedclient "github.com/kubewharf/kubeadmiral/pkg/client/clientset/versioned"
 	fedinformers "github.com/kubewharf/kubeadmiral/pkg/client/informers/externalversions"
-	"github.com/kubewharf/kubeadmiral/pkg/hpaaggregatorapiserver/metrics/resource"
 	"github.com/kubewharf/kubeadmiral/pkg/hpaaggregatorapiserver/serverconfig"
 	"github.com/kubewharf/kubeadmiral/pkg/registry"
 	"github.com/kubewharf/kubeadmiral/pkg/registry/hpaaggregator/aggregation"
+	metrics2 "github.com/kubewharf/kubeadmiral/pkg/registry/hpaaggregator/aggregation/metrics"
 	"github.com/kubewharf/kubeadmiral/pkg/registry/hpaaggregator/externalmetricadaptor"
 	"github.com/kubewharf/kubeadmiral/pkg/util/informermanager"
 )
@@ -167,7 +167,7 @@ func (c completedConfig) New() (*Server, error) {
 	}
 
 	root := path.Join("/apis", v1alpha1.SchemeGroupVersion.Group, v1alpha1.SchemeGroupVersion.Version, "aggregation")
-	if err := resource.InstallMetrics(
+	if err := metrics2.InstallMetrics(
 		root,
 		c.GenericConfig,
 		Scheme,

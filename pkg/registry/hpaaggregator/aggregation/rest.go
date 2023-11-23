@@ -36,7 +36,8 @@ import (
 	"github.com/kubewharf/kubeadmiral/pkg/apis/hpaaggregator/v1alpha1"
 	fedclient "github.com/kubewharf/kubeadmiral/pkg/client/clientset/versioned"
 	aggregatedlister2 "github.com/kubewharf/kubeadmiral/pkg/hpaaggregatorapiserver/aggregatedlister"
-	"github.com/kubewharf/kubeadmiral/pkg/hpaaggregatorapiserver/metrics/resource"
+	"github.com/kubewharf/kubeadmiral/pkg/registry/hpaaggregator/aggregation/forward"
+	resource2 "github.com/kubewharf/kubeadmiral/pkg/registry/hpaaggregator/aggregation/metrics/resource"
 	"github.com/kubewharf/kubeadmiral/pkg/util/informermanager"
 )
 
@@ -49,7 +50,7 @@ type REST struct {
 	APIServer      *url.URL
 	ProxyTransport http.RoundTripper
 	NodeSelector   string
-	MetricsGetter  resource.MetricsGetter
+	MetricsGetter  resource2.MetricsGetter
 	PodLister      cache.GenericLister
 	NodeLister     corev1.NodeLister
 
@@ -78,7 +79,7 @@ func NewREST(
 
 	nodeLister := aggregatedlister2.NewNodeLister(federatedInformerManager)
 	podLister := aggregatedlister2.NewPodLister(federatedInformerManager)
-	metricsGetter := resource.NewMetricsGetter(federatedInformerManager, logger)
+	metricsGetter := resource2.NewMetricsGetter(federatedInformerManager, logger)
 
 	return &REST{
 		kubeClient:               kubeClient,
@@ -111,6 +112,7 @@ func (r *REST) NamespaceScoped() bool {
 
 func (r *REST) Connect(ctx context.Context, _ string, _ runtime.Object, resp rest.Responder) (http.Handler, error) {
 	requestInfo, found := genericapirequest.RequestInfoFrom(ctx)
+	fmt.Println("##### requestInfo:", requestInfo, found)
 	if !found || len(requestInfo.Parts) < 2 {
 		return nil, errors.New("no RequestInfo found in the context")
 	}
@@ -122,11 +124,11 @@ func (r *REST) Connect(ctx context.Context, _ string, _ runtime.Object, resp res
 	case isSelf(requestInfo.Parts):
 		return nil, errors.New("can't proxy to self")
 	case isRequestForPod(requestInfo.Parts):
-		return NewPodHandler(requestPath, resp), nil
+		return forward.NewPodHandler(requestPath, resp), nil
 	case isRequestForHPA(requestInfo.Parts):
-		return NewHPAHandler(requestPath, resp), nil
+		return forward.NewHPAHandler(requestPath, resp), nil
 	default:
-		return NewForwardHandler(*r.APIServer, requestPath, r.ProxyTransport, resp)
+		return forward.NewForwardHandler(*r.APIServer, requestPath, r.ProxyTransport, resp)
 	}
 }
 

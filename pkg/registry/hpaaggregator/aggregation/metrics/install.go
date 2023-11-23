@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package resource
+package metrics
 
 import (
 	"fmt"
@@ -41,12 +41,14 @@ import (
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/metrics/pkg/apis/metrics"
 	"k8s.io/metrics/pkg/apis/metrics/v1beta1"
+
+	"github.com/kubewharf/kubeadmiral/pkg/registry/hpaaggregator/aggregation/metrics/resource"
 )
 
 // Install builds the metrics for the metrics.k8s.io API, and then installs it into the given API metrics-server.
 func Install(
 	prefix string,
-	m MetricsGetter,
+	m resource.MetricsGetter,
 	podMetadataLister cache.GenericLister,
 	nodeLister corev1.NodeLister,
 	storages map[string]rest.Storage,
@@ -55,8 +57,8 @@ func Install(
 	if storages == nil {
 		return fmt.Errorf("storages should not be nil")
 	}
-	node := NewNodeMetrics(metrics.Resource("nodemetrics"), m, nodeLister, nodeSelector)
-	pod := NewPodMetrics(metrics.Resource("podmetrics"), m, podMetadataLister)
+	node := resource.NewNodeMetrics(metrics.Resource("nodemetrics"), m, nodeLister, nodeSelector)
+	pod := resource.NewPodMetrics(metrics.Resource("podmetrics"), m, podMetadataLister)
 
 	prefix = path.Join(prefix, "apis", metrics.GroupName, v1beta1.SchemeGroupVersion.Version)
 	storages[prefix+"/nodes"] = node
@@ -70,15 +72,15 @@ func InstallMetrics(
 	scheme *runtime.Scheme,
 	parameterCodec runtime.ParameterCodec,
 	codecs serializer.CodecFactory,
-	m MetricsGetter,
+	m resource.MetricsGetter,
 	podMetadataLister cache.GenericLister,
 	nodeLister corev1.NodeLister,
 	nodeSelector []labels.Requirement,
 	s *genericapiserver.GenericAPIServer,
 ) error {
 	storage := make(map[string]rest.Storage)
-	node := NewNodeMetrics(metrics.Resource("nodemetrics"), m, nodeLister, nodeSelector)
-	pod := NewPodMetrics(metrics.Resource("podmetrics"), m, podMetadataLister)
+	node := resource.NewNodeMetrics(metrics.Resource("nodemetrics"), m, nodeLister, nodeSelector)
+	pod := resource.NewPodMetrics(metrics.Resource("podmetrics"), m, podMetadataLister)
 	storage["nodes"] = node
 	storage["pods"] = pod
 
