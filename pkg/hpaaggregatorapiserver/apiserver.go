@@ -44,6 +44,7 @@ import (
 	fedclient "github.com/kubewharf/kubeadmiral/pkg/client/clientset/versioned"
 	fedinformers "github.com/kubewharf/kubeadmiral/pkg/client/informers/externalversions"
 	"github.com/kubewharf/kubeadmiral/pkg/hpaaggregatorapiserver/metrics/resource"
+	"github.com/kubewharf/kubeadmiral/pkg/hpaaggregatorapiserver/serverconfig"
 	"github.com/kubewharf/kubeadmiral/pkg/registry"
 	"github.com/kubewharf/kubeadmiral/pkg/registry/hpaaggregator/aggregation"
 	"github.com/kubewharf/kubeadmiral/pkg/registry/hpaaggregator/externalmetricadaptor"
@@ -96,6 +97,7 @@ type ExtraConfig struct {
 
 	FederatedInformerManager informermanager.FederatedInformerManager
 	FedInformerFactory       fedinformers.SharedInformerFactory
+	RequestInfoResolver      *serverconfig.RequestInfoResolver
 }
 
 // Config defines the config for the apiserver
@@ -164,8 +166,9 @@ func (c completedConfig) New() (*Server, error) {
 		return nil, err
 	}
 
+	root := path.Join("/apis", v1alpha1.SchemeGroupVersion.Group, v1alpha1.SchemeGroupVersion.Version, "aggregation")
 	if err := resource.InstallMetrics(
-		path.Join("/apis", v1alpha1.SchemeGroupVersion.Group, v1alpha1.SchemeGroupVersion.Version, "aggregation"),
+		root,
 		c.GenericConfig,
 		Scheme,
 		ParameterCodec,
@@ -178,12 +181,13 @@ func (c completedConfig) New() (*Server, error) {
 	); err != nil {
 		return nil, err
 	}
+	c.ExtraConfig.RequestInfoResolver.InsertCustomPrefixes(root)
 
 	return s, nil
 }
 
 func (e *ExtraConfig) Run(ctx context.Context) error {
-	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, 60*time.Second)
 	defer cancel()
 
 	e.FedInformerFactory.Start(ctx.Done())
@@ -191,8 +195,10 @@ func (e *ExtraConfig) Run(ctx context.Context) error {
 
 	if !cache.WaitForNamedCacheSync("hpa-aggregator", ctx.Done(), e.FederatedInformerManager.HasSynced) {
 		klog.Error("Timed out waiting for cache sync")
+		fmt.Println("#### Timed out waiting for cache sync")
 		return fmt.Errorf("failed to wait for cache sync")
 	}
 	klog.Info("FederatedInformerManager started")
+	fmt.Println("##### FederatedInformerManager started")
 	return nil
 }

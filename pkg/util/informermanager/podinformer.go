@@ -131,8 +131,10 @@ func prunePod(pod *corev1.Pod) {
 			ResourceVersion:   pod.ResourceVersion,
 			UID:               pod.UID,
 			DeletionTimestamp: pod.DeletionTimestamp,
+			Labels:            pod.Labels,
 		},
 		Spec: corev1.PodSpec{
+			RestartPolicy:  pod.Spec.RestartPolicy,
 			NodeName:       pod.Spec.NodeName,
 			Overhead:       pod.Spec.Overhead,
 			Containers:     containers,

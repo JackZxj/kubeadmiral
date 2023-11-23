@@ -97,12 +97,8 @@ func (m *PodMetrics) pods(ctx context.Context, options *metainternalversion.List
 	if options != nil && options.LabelSelector != nil {
 		labelSelector = options.LabelSelector
 	}
-	requestInfo, found := genericapirequest.RequestInfoFrom(ctx)
-	if !found {
-		return nil, fmt.Errorf("no RequestInfo found in the context")
-	}
-	namespace, _ := getNamespaceName(requestInfo.Parts, true)
 
+	namespace := genericapirequest.NamespaceValue(ctx)
 	pods, err := m.podLister.ByNamespace(namespace).List(labelSelector)
 	if err != nil {
 		klog.ErrorS(err, "Failed listing pods", "labelSelector", labelSelector, "namespace", klog.KRef("", namespace))
@@ -133,12 +129,8 @@ func (m *PodMetrics) pods(ctx context.Context, options *metainternalversion.List
 }
 
 // Get implements rest.Getter interface
-func (m *PodMetrics) Get(ctx context.Context, _ string, opts *metav1.GetOptions) (runtime.Object, error) {
-	requestInfo, found := genericapirequest.RequestInfoFrom(ctx)
-	if !found {
-		return nil, fmt.Errorf("no RequestInfo found in the context")
-	}
-	namespace, name := getNamespaceName(requestInfo.Parts, true)
+func (m *PodMetrics) Get(ctx context.Context, name string, opts *metav1.GetOptions) (runtime.Object, error) {
+	namespace := genericapirequest.NamespaceValue(ctx)
 
 	obj, err := m.podLister.ByNamespace(namespace).Get(name)
 	if err != nil {

@@ -50,6 +50,7 @@ import (
 	fedopenapi "github.com/kubewharf/kubeadmiral/pkg/client/openapi"
 	"github.com/kubewharf/kubeadmiral/pkg/controllers/common"
 	apiserver "github.com/kubewharf/kubeadmiral/pkg/hpaaggregatorapiserver"
+	"github.com/kubewharf/kubeadmiral/pkg/hpaaggregatorapiserver/serverconfig"
 	clusterutil "github.com/kubewharf/kubeadmiral/pkg/util/cluster"
 	"github.com/kubewharf/kubeadmiral/pkg/util/informermanager"
 )
@@ -170,6 +171,9 @@ func (o *Options) Config() (*apiserver.Config, error) {
 		return nil, err
 	}
 
+	RequestInfoResolver := serverconfig.NewRequestInfoResolver(&serverConfig.Config)
+	serverConfig.RequestInfoResolver = RequestInfoResolver
+
 	restConfig, err := clientcmd.BuildConfigFromFlags(o.Master, o.RecommendedOptions.CoreAPI.CoreAPIKubeconfigPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create rest config: %w", err)
@@ -218,6 +222,7 @@ func (o *Options) Config() (*apiserver.Config, error) {
 			FedClientset:             fedClientset,
 			FedInformerFactory:       fedInformerFactory,
 			FederatedInformerManager: federatedInformerManager,
+			RequestInfoResolver:      RequestInfoResolver,
 		},
 	}
 	return config, nil
