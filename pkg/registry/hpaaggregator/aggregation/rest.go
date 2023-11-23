@@ -113,22 +113,23 @@ func (r *REST) NamespaceScoped() bool {
 func (r *REST) Connect(ctx context.Context, _ string, _ runtime.Object, resp rest.Responder) (http.Handler, error) {
 	requestInfo, found := genericapirequest.RequestInfoFrom(ctx)
 	fmt.Println("##### requestInfo:", requestInfo, found)
-	if !found || len(requestInfo.Parts) < 2 {
+	if !found {
 		return nil, errors.New("no RequestInfo found in the context")
 	}
 	// /apis/hpaaggregator.kubeadmiral.io/v1alpha1/aggregation/api/v1/pods
 	// /apis/hpaaggregator.kubeadmiral.io/v1alpha1/aggregation/apis/storage.k8s.io/v1/storageclasses
 
-	requestPath := requestInfo.Parts[1:]
 	switch {
-	case isSelf(requestInfo.Parts):
+	case isSelf(requestInfo):
 		return nil, errors.New("can't proxy to self")
-	case isRequestForPod(requestInfo.Parts):
-		return forward.NewPodHandler(requestPath, resp), nil
-	case isRequestForHPA(requestInfo.Parts):
-		return forward.NewHPAHandler(requestPath, resp), nil
+	case isRequestForPod(requestInfo):
+		return forward.NewPodHandler(requestInfo.Parts, resp), nil
+	case isRequestForNode(requestInfo):
+		return forward.NewNodeHandler(), nil
+	case isRequestForHPA(requestInfo):
+		return forward.NewHPAHandler(requestInfo.Parts, resp), nil
 	default:
-		return forward.NewForwardHandler(*r.APIServer, requestPath, r.ProxyTransport, resp)
+		return forward.NewForwardHandler(*r.APIServer, requestInfo.Parts[1:], r.ProxyTransport, resp)
 	}
 }
 
@@ -155,22 +156,18 @@ func CreateProxyTransport() *http.Transport {
 	return proxyTransport
 }
 
-func isRequestForPod(requestParts []string) bool {
-	return len(requestParts) >= 4 &&
-		requestParts[1] == "api" &&
-		requestParts[2] == "v1" &&
-		requestParts[3] == "pods"
+func isSelf(request *genericapirequest.RequestInfo) bool {
+	return request.APIGroup == v1alpha1.SchemeGroupVersion.Group && len(request.Parts) > 3
 }
 
-func isRequestForHPA(requestParts []string) bool {
-	return len(requestParts) >= 4 &&
-		requestParts[1] == "api" &&
-		requestParts[2] == "v1" &&
-		requestParts[3] == "hpas"
+func isRequestForPod(request *genericapirequest.RequestInfo) bool {
+	return request.APIGroup == "" && request.APIVersion == "v1" && request.Resource == "pods"
 }
 
-func isSelf(requestParts []string) bool {
-	return len(requestParts) >= 4 &&
-		requestParts[1] == v1alpha1.SchemeGroupVersion.Group &&
-		requestParts[2] == v1alpha1.SchemeGroupVersion.Version
+func isRequestForNode(request *genericapirequest.RequestInfo) bool {
+	return request.APIGroup == "" && request.APIVersion == "v1" && request.Resource == "nodes"
+}
+
+func isRequestForHPA(request *genericapirequest.RequestInfo) bool {
+	return request.APIGroup == "hpa.com" && request.APIVersion == "v1" && request.Resource == "hpas"
 }

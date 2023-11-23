@@ -35,8 +35,8 @@ import (
 	kubeclient "k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/klog/v2"
-	"k8s.io/metrics/pkg/apis/metrics"
 	metricsinstall "k8s.io/metrics/pkg/apis/metrics/install"
+	metricsv1beta1 "k8s.io/metrics/pkg/apis/metrics/v1beta1"
 
 	hpaaggregatorapi "github.com/kubewharf/kubeadmiral/pkg/apis/hpaaggregator"
 	"github.com/kubewharf/kubeadmiral/pkg/apis/hpaaggregator/install"
@@ -77,11 +77,6 @@ func init() {
 		&metav1.APIGroupList{},
 		&metav1.APIGroup{},
 		&metav1.APIResourceList{},
-
-		&metrics.NodeMetrics{},
-		&metrics.NodeMetricsList{},
-		&metrics.PodMetrics{},
-		&metrics.PodMetricsList{},
 	)
 	utilruntime.Must(internalversion.AddToScheme(Scheme))
 }
@@ -182,6 +177,9 @@ func (c completedConfig) New() (*Server, error) {
 		return nil, err
 	}
 	c.ExtraConfig.RequestInfoResolver.InsertCustomPrefixes(serverconfig.NewDefaultResolver(root))
+	c.ExtraConfig.RequestInfoResolver.InsertConnecterBlacklist(
+		path.Join(root, "apis", metricsv1beta1.SchemeGroupVersion.String()),
+	)
 
 	return s, nil
 }

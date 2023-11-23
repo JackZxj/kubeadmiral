@@ -21,18 +21,13 @@ import (
 	"path"
 	"time"
 
-	apidiscoveryv2beta1 "k8s.io/api/apidiscovery/v2beta1"
 	"k8s.io/apimachinery/pkg/api/meta"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/runtime/serializer"
 	genericapi "k8s.io/apiserver/pkg/endpoints"
-	"k8s.io/apiserver/pkg/endpoints/discovery"
-	discoveryendpoint "k8s.io/apiserver/pkg/endpoints/discovery/aggregated"
 	"k8s.io/apiserver/pkg/features"
-	genericfeatures "k8s.io/apiserver/pkg/features"
 	"k8s.io/apiserver/pkg/registry/rest"
 	genericapiserver "k8s.io/apiserver/pkg/server"
 	"k8s.io/apiserver/pkg/storageversion"
@@ -88,30 +83,30 @@ func InstallMetrics(
 	version.Storage = storage
 	version.Root = path.Join(parentPath, "apis")
 
-	discoveryAPIResources, r, err := version.InstallREST(s.Handler.GoRestfulContainer)
+	_, r, err := version.InstallREST(s.Handler.GoRestfulContainer)
 	if err != nil {
 		return fmt.Errorf("unable to setup API %v: %v", version, err)
 	}
 
-	if c.EnableDiscovery {
-		root := path.Join(parentPath, "api")
-		// TODO: make it global
-		discoveryGroupManager := discovery.NewLegacyRootAPIHandler(c.DiscoveryAddresses, codecs, root)
-		if utilfeature.DefaultFeatureGate.Enabled(genericfeatures.AggregatedDiscoveryEndpoint) {
-			manager := discoveryendpoint.NewResourceManager()
-			manager.AddGroupVersion(
-				v1beta1.SchemeGroupVersion.Group,
-				apidiscoveryv2beta1.APIVersionDiscovery{
-					Version:   v1beta1.SchemeGroupVersion.Version,
-					Resources: discoveryAPIResources,
-				},
-			)
-			wrapped := discoveryendpoint.WrapAggregatedDiscoveryToHandler(discoveryGroupManager, manager)
-			s.Handler.GoRestfulContainer.Add(wrapped.GenerateWebService(root, metav1.APIGroupList{}))
-		} else {
-			s.Handler.GoRestfulContainer.Add(discoveryGroupManager.WebService())
-		}
-	}
+	//if c.EnableDiscovery {
+	//	root := path.Join(parentPath, "api")
+	//	// TODO: make it global
+	//	discoveryGroupManager := discovery.NewLegacyRootAPIHandler(c.DiscoveryAddresses, codecs, root)
+	//	if utilfeature.DefaultFeatureGate.Enabled(genericfeatures.AggregatedDiscoveryEndpoint) {
+	//		manager := discoveryendpoint.NewResourceManager()
+	//		manager.AddGroupVersion(
+	//			v1beta1.SchemeGroupVersion.Group,
+	//			apidiscoveryv2beta1.APIVersionDiscovery{
+	//				Version:   v1beta1.SchemeGroupVersion.Version,
+	//				Resources: discoveryAPIResources,
+	//			},
+	//		)
+	//		wrapped := discoveryendpoint.WrapAggregatedDiscoveryToHandler(discoveryGroupManager, manager)
+	//		s.Handler.GoRestfulContainer.Add(wrapped.GenerateWebService(root, metav1.APIGroupList{}))
+	//	} else {
+	//		s.Handler.GoRestfulContainer.Add(discoveryGroupManager.WebService())
+	//	}
+	//}
 
 	var resourceInfos []*storageversion.ResourceInfo
 	resourceInfos = append(resourceInfos, r...)
