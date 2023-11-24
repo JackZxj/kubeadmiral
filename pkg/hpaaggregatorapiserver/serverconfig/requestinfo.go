@@ -50,7 +50,7 @@ func (r *RequestInfoResolver) NewRequestInfo(req *http.Request) (*apirequest.Req
 		reqCopy.URL.Path = result
 	}
 	info, err := r.defaultResolver.NewRequestInfo(reqCopy)
-	if err == nil && !r.inBlacklist(req.URL.Path) {
+	if err == nil && !r.inBlacklist(req.URL.Path) && info.Name == "" {
 		// The name is required but not used in our rest.Connecter, so we have to set a default value
 		// into it to avoid "name must be provided" error.
 		info.Name = "default"
@@ -103,8 +103,5 @@ func (r *RequestInfoResolver) inBlacklist(path string) bool {
 func defaultResolver(rawPath, prefix string) string {
 	subPath := strings.TrimPrefix(rawPath, prefix)
 	subPath = strings.Trim(subPath, "/")
-	if len(strings.Split(subPath, "/")) < 3 {
-		return rawPath
-	}
 	return subPath
 }

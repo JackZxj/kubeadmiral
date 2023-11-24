@@ -146,6 +146,7 @@ func (o *Options) Config() (*apiserver.Config, error) {
 	}
 
 	serverConfig := genericapiserver.NewRecommendedConfig(apiserver.Codecs)
+	serverConfig.Config.BuildHandlerChainFunc = serverconfig.CopyAuthHandlerChain
 
 	serverConfig.OpenAPIConfig = genericapiserver.DefaultOpenAPIConfig(
 		fedopenapi.GetOpenAPIDefinitions,

@@ -46,7 +46,7 @@ func (p *PodLister) List(selector labels.Selector) (ret []runtime.Object, err er
 		}
 		for i := range pods {
 			pod := pods[i].DeepCopy()
-			MakeObjectUnique(pod, cluster.Name)
+			MakePodUnique(pod, cluster.Name)
 			ret = append(ret, pod)
 		}
 	}
@@ -84,13 +84,10 @@ func (p *PodNamespaceLister) List(selector labels.Selector) (ret []runtime.Objec
 		}
 		for i := range pods {
 			pod := pods[i].DeepCopy()
-			MakeObjectUnique(pod, cluster.Name)
+			MakePodUnique(pod, cluster.Name)
 			ret = append(ret, pod)
 		}
 		fmt.Println("list namespace pod cluster", cluster, p.namespace, ret)
-		if len(ret) == 0 {
-			fmt.Println(podLister.Pods("default").List(labels.Everything()))
-		}
 	}
 	fmt.Println("list namespace pod", selector, p.namespace, ret)
 	return ret, nil
@@ -115,7 +112,7 @@ func (p *PodNamespaceLister) Get(name string) (runtime.Object, error) {
 		for i := range pods {
 			if name == GenUniqueName(cluster, pods[i].Name) {
 				pod := pods[i].DeepCopy()
-				MakeObjectUnique(pod, cluster)
+				MakePodUnique(pod, cluster)
 				fmt.Println("get pod", name, pod)
 				return pod, nil
 			}

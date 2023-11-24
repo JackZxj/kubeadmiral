@@ -17,23 +17,45 @@ limitations under the License.
 package forward
 
 import (
+	"errors"
 	"net/http"
 	"net/url"
-	"path"
 
+	authenticationv1 "k8s.io/api/authentication/v1"
 	"k8s.io/apimachinery/pkg/util/proxy"
+	"k8s.io/apiserver/pkg/authentication/user"
+	"k8s.io/apiserver/pkg/endpoints/handlers/responsewriters"
+	"k8s.io/apiserver/pkg/endpoints/request"
 	"k8s.io/apiserver/pkg/registry/rest"
+
+	"github.com/kubewharf/kubeadmiral/pkg/hpaaggregatorapiserver/serverconfig"
 )
 
 func NewForwardHandler(
 	location url.URL,
-	forwardPath []string,
+	forwardPath string,
 	transport http.RoundTripper,
 	r rest.Responder,
 ) (http.Handler, error) {
-	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		location.Path = path.Join(forwardPath...)
-		location.RawQuery = request.URL.RawQuery
+	return http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
+		// TODO: support cert and key
+		serverconfig.RecoverAuthentication(req)
+		if !serverconfig.RecoverImpersonation(req) {
+			requester, exist := request.UserFrom(req.Context())
+			if !exist {
+				responsewriters.InternalError(rw, req, errors.New("no user found for request"))
+				return
+			}
+			req.Header.Set(authenticationv1.ImpersonateUserHeader, requester.GetName())
+			for _, group := range requester.GetGroups() {
+				if group != user.AllAuthenticated && group != user.AllUnauthenticated {
+					req.Header.Add(authenticationv1.ImpersonateGroupHeader, group)
+				}
+			}
+		}
+
+		location.Path = forwardPath
+		location.RawQuery = req.URL.RawQuery
 
 		handler := proxy.NewUpgradeAwareHandler(
 			&location,
@@ -45,6 +67,6 @@ func NewForwardHandler(
 		// TODO: make it configurable
 		handler.MaxBytesPerSec = 0
 
-		handler.ServeHTTP(writer, request)
+		handler.ServeHTTP(rw, req)
 	}), nil
 }

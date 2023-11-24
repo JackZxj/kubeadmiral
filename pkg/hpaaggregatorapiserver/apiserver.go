@@ -152,6 +152,9 @@ func (c completedConfig) New() (*Server, error) {
 		c.ExtraConfig.FederatedInformerManager,
 		c.ExtraConfig.APIServerEndpoint,
 		"",
+		//Codecs,
+		//Scheme,
+		time.Duration(c.GenericConfig.MinRequestTimeout)*time.Second,
 		klog.Background().WithValues("api", "hpa-aggregation"),
 	)
 	v1alpha1storage["aggregation"] = registry.RESTInPeace(aggregationAPI, err)

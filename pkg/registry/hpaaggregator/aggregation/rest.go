@@ -23,6 +23,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"time"
 
 	"k8s.io/apimachinery/pkg/runtime"
 	utilnet "k8s.io/apimachinery/pkg/util/net"
@@ -54,6 +55,8 @@ type REST struct {
 	PodLister      cache.GenericLister
 	NodeLister     corev1.NodeLister
 
+	podHander forward.PodHandler
+
 	logger klog.Logger
 }
 
@@ -70,6 +73,9 @@ func NewREST(
 	federatedInformerManager informermanager.FederatedInformerManager,
 	endpoint string,
 	nodeSelector string,
+	//serializer runtime.NegotiatedSerializer,
+	//scheme *runtime.Scheme,
+	minRequestTimeout time.Duration,
 	logger klog.Logger,
 ) (*REST, error) {
 	api, err := url.Parse(endpoint)
@@ -81,6 +87,14 @@ func NewREST(
 	podLister := aggregatedlister2.NewPodLister(federatedInformerManager)
 	metricsGetter := resource2.NewMetricsGetter(federatedInformerManager, logger)
 
+	podHandler := forward.NewPodREST(
+		federatedInformerManager,
+		podLister,
+		//serializer,
+		//scheme,
+		minRequestTimeout,
+	)
+
 	return &REST{
 		kubeClient:               kubeClient,
 		fedClient:                fedClient,
@@ -91,6 +105,7 @@ func NewREST(
 		MetricsGetter:            metricsGetter,
 		PodLister:                podLister,
 		NodeLister:               nodeLister,
+		podHander:                podHandler,
 		logger:                   logger,
 	}, nil
 }
@@ -123,13 +138,13 @@ func (r *REST) Connect(ctx context.Context, _ string, _ runtime.Object, resp res
 	case isSelf(requestInfo):
 		return nil, errors.New("can't proxy to self")
 	case isRequestForPod(requestInfo):
-		return forward.NewPodHandler(requestInfo.Parts, resp), nil
+		return r.podHander.RunHandler(ctx)
 	case isRequestForNode(requestInfo):
 		return forward.NewNodeHandler(), nil
 	case isRequestForHPA(requestInfo):
 		return forward.NewHPAHandler(requestInfo.Parts, resp), nil
 	default:
-		return forward.NewForwardHandler(*r.APIServer, requestInfo.Parts[1:], r.ProxyTransport, resp)
+		return forward.NewForwardHandler(*r.APIServer, requestInfo.Path, r.ProxyTransport, resp)
 	}
 }
 
@@ -157,7 +172,7 @@ func CreateProxyTransport() *http.Transport {
 }
 
 func isSelf(request *genericapirequest.RequestInfo) bool {
-	return request.APIGroup == v1alpha1.SchemeGroupVersion.Group && len(request.Parts) > 3
+	return request.APIGroup == v1alpha1.SchemeGroupVersion.Group
 }
 
 func isRequestForPod(request *genericapirequest.RequestInfo) bool {

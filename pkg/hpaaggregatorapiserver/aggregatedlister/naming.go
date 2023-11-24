@@ -3,6 +3,7 @@ package aggregatedlister
 import (
 	"strings"
 
+	corev1 "k8s.io/api/core/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	fedcorev1a1 "github.com/kubewharf/kubeadmiral/pkg/apis/core/v1alpha1"
@@ -40,4 +41,11 @@ func MakeObjectUnique(obj client.Object, clusterName string) {
 	_, _ = annotation.AddAnnotation(obj, ClusterNameAnnotationKey, clusterName)
 	_, _ = annotation.AddAnnotation(obj, RawNameAnnotationKey, obj.GetName())
 	obj.SetName(GenUniqueName(clusterName, obj.GetName()))
+}
+
+func MakePodUnique(pod *corev1.Pod, clusterName string) {
+	MakeObjectUnique(pod, clusterName)
+	if pod.Spec.NodeName != "" {
+		pod.Spec.NodeName = GenUniqueName(clusterName, pod.Spec.NodeName)
+	}
 }

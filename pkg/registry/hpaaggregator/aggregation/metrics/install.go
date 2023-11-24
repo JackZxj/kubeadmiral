@@ -88,26 +88,6 @@ func InstallMetrics(
 		return fmt.Errorf("unable to setup API %v: %v", version, err)
 	}
 
-	//if c.EnableDiscovery {
-	//	root := path.Join(parentPath, "api")
-	//	// TODO: make it global
-	//	discoveryGroupManager := discovery.NewLegacyRootAPIHandler(c.DiscoveryAddresses, codecs, root)
-	//	if utilfeature.DefaultFeatureGate.Enabled(genericfeatures.AggregatedDiscoveryEndpoint) {
-	//		manager := discoveryendpoint.NewResourceManager()
-	//		manager.AddGroupVersion(
-	//			v1beta1.SchemeGroupVersion.Group,
-	//			apidiscoveryv2beta1.APIVersionDiscovery{
-	//				Version:   v1beta1.SchemeGroupVersion.Version,
-	//				Resources: discoveryAPIResources,
-	//			},
-	//		)
-	//		wrapped := discoveryendpoint.WrapAggregatedDiscoveryToHandler(discoveryGroupManager, manager)
-	//		s.Handler.GoRestfulContainer.Add(wrapped.GenerateWebService(root, metav1.APIGroupList{}))
-	//	} else {
-	//		s.Handler.GoRestfulContainer.Add(discoveryGroupManager.WebService())
-	//	}
-	//}
-
 	var resourceInfos []*storageversion.ResourceInfo
 	resourceInfos = append(resourceInfos, r...)
 
