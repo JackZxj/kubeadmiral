@@ -191,6 +191,9 @@ func isRequestForNode(request *genericapirequest.RequestInfo) bool {
 }
 
 func (r *REST) isRequestForHPA(request *genericapirequest.RequestInfo) (*fedcorev1a1.FederatedTypeConfig, bool) {
+	if request.Resource == "" || request.APIGroup == "" {
+		return nil, false
+	}
 	ftc, _ := r.federatedInformerManager.
 		GetFederatedTypeConfigLister().
 		Get(fmt.Sprintf("%s.%s", request.Resource, request.APIGroup))
