@@ -147,7 +147,7 @@ func (c completedConfig) New() (*Server, error) {
 	v1alpha1storage := map[string]rest.Storage{}
 	v1alpha1storage["externalmetricadaptors"] = registry.RESTInPeace(externalmetricadaptor.NewREST(Scheme, c.GenericConfig.RESTOptionsGetter))
 	aggregationAPI, err := aggregation.NewREST(
-		c.ExtraConfig.KubeClientset,
+		c.ExtraConfig.DynamicClientset,
 		c.ExtraConfig.FedClientset,
 		c.ExtraConfig.FederatedInformerManager,
 		c.ExtraConfig.APIServerEndpoint,

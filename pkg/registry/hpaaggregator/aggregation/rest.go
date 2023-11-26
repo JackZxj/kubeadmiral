@@ -29,13 +29,15 @@ import (
 	utilnet "k8s.io/apimachinery/pkg/util/net"
 	genericapirequest "k8s.io/apiserver/pkg/endpoints/request"
 	"k8s.io/apiserver/pkg/registry/rest"
-	kubeclient "k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/dynamic"
 	corev1 "k8s.io/client-go/listers/core/v1"
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/klog/v2"
 
+	fedcorev1a1 "github.com/kubewharf/kubeadmiral/pkg/apis/core/v1alpha1"
 	"github.com/kubewharf/kubeadmiral/pkg/apis/hpaaggregator/v1alpha1"
 	fedclient "github.com/kubewharf/kubeadmiral/pkg/client/clientset/versioned"
+	"github.com/kubewharf/kubeadmiral/pkg/controllers/common"
 	aggregatedlister2 "github.com/kubewharf/kubeadmiral/pkg/hpaaggregatorapiserver/aggregatedlister"
 	"github.com/kubewharf/kubeadmiral/pkg/registry/hpaaggregator/aggregation/forward"
 	resource2 "github.com/kubewharf/kubeadmiral/pkg/registry/hpaaggregator/aggregation/metrics/resource"
@@ -43,8 +45,8 @@ import (
 )
 
 type REST struct {
-	kubeClient kubeclient.Interface
-	fedClient  fedclient.Interface
+	client    dynamic.Interface
+	fedClient fedclient.Interface
 
 	federatedInformerManager informermanager.FederatedInformerManager
 
@@ -55,7 +57,8 @@ type REST struct {
 	PodLister      cache.GenericLister
 	NodeLister     corev1.NodeLister
 
-	podHander forward.PodHandler
+	podHandler forward.PodHandler
+	hpaHandler forward.HPAHandler
 
 	logger klog.Logger
 }
@@ -68,13 +71,11 @@ var proxyMethods = []string{"GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OP
 
 // NewREST returns a RESTStorage object that will work against API services.
 func NewREST(
-	kubeClient kubeclient.Interface,
+	kubeClient dynamic.Interface,
 	fedClient fedclient.Interface,
 	federatedInformerManager informermanager.FederatedInformerManager,
 	endpoint string,
 	nodeSelector string,
-	//serializer runtime.NegotiatedSerializer,
-	//scheme *runtime.Scheme,
 	minRequestTimeout time.Duration,
 	logger klog.Logger,
 ) (*REST, error) {
@@ -90,13 +91,16 @@ func NewREST(
 	podHandler := forward.NewPodREST(
 		federatedInformerManager,
 		podLister,
-		//serializer,
-		//scheme,
+		minRequestTimeout,
+	)
+
+	hpaHandler := forward.NewHPAREST(
+		kubeClient,
 		minRequestTimeout,
 	)
 
 	return &REST{
-		kubeClient:               kubeClient,
+		client:                   kubeClient,
 		fedClient:                fedClient,
 		federatedInformerManager: federatedInformerManager,
 		APIServer:                api,
@@ -105,7 +109,8 @@ func NewREST(
 		MetricsGetter:            metricsGetter,
 		PodLister:                podLister,
 		NodeLister:               nodeLister,
-		podHander:                podHandler,
+		podHandler:               podHandler,
+		hpaHandler:               hpaHandler,
 		logger:                   logger,
 	}, nil
 }
@@ -138,12 +143,14 @@ func (r *REST) Connect(ctx context.Context, _ string, _ runtime.Object, resp res
 	case isSelf(requestInfo):
 		return nil, errors.New("can't proxy to self")
 	case isRequestForPod(requestInfo):
-		return r.podHander.RunHandler(ctx)
+		return r.podHandler.Handler(ctx)
 	case isRequestForNode(requestInfo):
 		return forward.NewNodeHandler(), nil
-	case isRequestForHPA(requestInfo):
-		return forward.NewHPAHandler(requestInfo.Parts, resp), nil
 	default:
+		if ftc, ok := r.isRequestForHPA(requestInfo); ok {
+			fmt.Println("##### hpa")
+			return r.hpaHandler.Handler(ctx, ftc)
+		}
 		return forward.NewForwardHandler(*r.APIServer, requestInfo.Path, r.ProxyTransport, resp)
 	}
 }
@@ -183,6 +190,12 @@ func isRequestForNode(request *genericapirequest.RequestInfo) bool {
 	return request.APIGroup == "" && request.APIVersion == "v1" && request.Resource == "nodes"
 }
 
-func isRequestForHPA(request *genericapirequest.RequestInfo) bool {
-	return request.APIGroup == "hpa.com" && request.APIVersion == "v1" && request.Resource == "hpas"
+func (r *REST) isRequestForHPA(request *genericapirequest.RequestInfo) (*fedcorev1a1.FederatedTypeConfig, bool) {
+	ftc, _ := r.federatedInformerManager.
+		GetFederatedTypeConfigLister().
+		Get(fmt.Sprintf("%s.%s", request.Resource, request.APIGroup))
+	if ftc != nil && ftc.GetAnnotations()[common.HPAScaleTargetRefPath] != "" {
+		return ftc, true
+	}
+	return nil, false
 }

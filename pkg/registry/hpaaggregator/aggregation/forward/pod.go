@@ -33,8 +33,6 @@ import (
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
-	"k8s.io/apimachinery/pkg/runtime/serializer"
-	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/watch"
 	"k8s.io/apiserver/pkg/endpoints/handlers"
@@ -43,9 +41,6 @@ import (
 	"k8s.io/apiserver/pkg/registry/rest"
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/klog/v2"
-	"k8s.io/kubernetes/pkg/printers"
-	printersinternal "k8s.io/kubernetes/pkg/printers/internalversion"
-	printerstorage "k8s.io/kubernetes/pkg/printers/storage"
 
 	"github.com/kubewharf/kubeadmiral/pkg/hpaaggregatorapiserver/aggregatedlister"
 	"github.com/kubewharf/kubeadmiral/pkg/util/informermanager"
@@ -137,20 +132,8 @@ import (
 //	})
 //}
 
-var scheme = runtime.NewScheme()
-var codecs = serializer.NewCodecFactory(scheme)
-var localSchemeBuilder = runtime.SchemeBuilder{
-	corev1.AddToScheme,
-}
-var addToScheme = localSchemeBuilder.AddToScheme
-
-func init() {
-	metav1.AddToGroupVersion(scheme, schema.GroupVersion{Version: "v1"})
-	utilruntime.Must(addToScheme(scheme))
-}
-
 type PodHandler interface {
-	RunHandler(ctx context.Context) (http.Handler, error)
+	Handler(ctx context.Context) (http.Handler, error)
 }
 
 type PodREST struct {
@@ -158,34 +141,28 @@ type PodREST struct {
 	federatedInformerManager informermanager.FederatedInformerManager
 	minRequestTimeout        time.Duration
 
-	serializer runtime.NegotiatedSerializer
-	scheme     *runtime.Scheme
-
 	tableConvertor rest.TableConvertor
 }
 
 var _ rest.Getter = &PodREST{}
 var _ rest.Lister = &PodREST{}
 var _ rest.Watcher = &PodREST{}
+var _ PodHandler = &PodREST{}
 
 func NewPodREST(
 	f informermanager.FederatedInformerManager,
 	podLister cache.GenericLister,
-	//serializer runtime.NegotiatedSerializer,
-	//scheme *runtime.Scheme,
 	minRequestTimeout time.Duration,
 ) *PodREST {
 	return &PodREST{
 		federatedInformerManager: f,
 		podLister:                podLister,
 		minRequestTimeout:        minRequestTimeout,
-		//serializer:               serializer,
-		//scheme:                   scheme,
-		tableConvertor: printerstorage.TableConvertor{TableGenerator: printers.NewTableGenerator().With(printersinternal.AddHandlers)},
+		tableConvertor:           tableConvertor,
 	}
 }
 
-func (p *PodREST) RunHandler(ctx context.Context) (http.Handler, error) {
+func (p *PodREST) Handler(ctx context.Context) (http.Handler, error) {
 	requestInfo, found := genericapirequest.RequestInfoFrom(ctx)
 	if !found {
 		return nil, errors.New("no RequestInfo found in the context")
