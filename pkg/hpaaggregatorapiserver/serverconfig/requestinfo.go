@@ -44,6 +44,7 @@ func NewDefaultResolver(prefix string) *CustomResolver {
 
 func (r *RequestInfoResolver) NewRequestInfo(req *http.Request) (*apirequest.RequestInfo, error) {
 	reqCopy := req
+	req.URL.Path = strings.TrimSuffix(req.URL.Path, "/")
 
 	if result, matched := r.runMatchedResolver(reqCopy.URL.Path); matched {
 		reqCopy = req.Clone(context.Background())
