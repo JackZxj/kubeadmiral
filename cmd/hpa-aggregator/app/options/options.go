@@ -111,6 +111,8 @@ func (o *Options) AddFlags(flags *pflag.FlagSet) {
 	flags.StringVar(&o.PrometheusAddr, "prometheus-addr", "", "Prometheus collector address")
 	flags.Uint16Var(&o.PrometheusPort, "prometheus-port", 9090, "Prometheus collector port")
 
+	utilfeature.DefaultMutableFeatureGate.AddFlag(flags)
+
 	o.RecommendedOptions.AddFlags(flags)
 	o.addKlogFlags(flags)
 }
