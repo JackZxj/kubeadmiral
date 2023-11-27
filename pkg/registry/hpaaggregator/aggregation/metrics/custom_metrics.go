@@ -4,10 +4,12 @@ import (
 	"path"
 
 	"k8s.io/apimachinery/pkg/api/meta"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/runtime/serializer"
 	genericapi "k8s.io/apiserver/pkg/endpoints"
+	"k8s.io/apiserver/pkg/endpoints/discovery"
 	genericapiserver "k8s.io/apiserver/pkg/server"
 	"k8s.io/metrics/pkg/apis/custom_metrics"
 	specificapi "sigs.k8s.io/custom-metrics-apiserver/pkg/apiserver/installer"
@@ -30,12 +32,31 @@ func InstallCustomMetricsAPI(
 	root := path.Join(parentPath, "apis")
 
 	groupInfo := genericapiserver.NewDefaultAPIGroupInfo(custom_metrics.GroupName, scheme, parameterCodec, codecs)
+	container := s.Handler.GoRestfulContainer
 
 	// Register custom metrics REST handler for all supported API versions.
-	for _, mainGroupVer := range groupInfo.PrioritizedVersions {
+	for versionIndex, mainGroupVer := range groupInfo.PrioritizedVersions {
+		preferredVersionForDiscovery := metav1.GroupVersionForDiscovery{
+			GroupVersion: mainGroupVer.String(),
+			Version:      mainGroupVer.Version,
+		}
+		groupVersion := metav1.GroupVersionForDiscovery{
+			GroupVersion: mainGroupVer.String(),
+			Version:      mainGroupVer.Version,
+		}
+		apiGroup := metav1.APIGroup{
+			Name:             mainGroupVer.Group,
+			Versions:         []metav1.GroupVersionForDiscovery{groupVersion},
+			PreferredVersion: preferredVersionForDiscovery,
+		}
+
 		cmAPI := cmAPI(root, &groupInfo, mainGroupVer, metricsProvider)
-		if err := cmAPI.InstallREST(s.Handler.GoRestfulContainer); err != nil {
+		if err := cmAPI.InstallREST(container); err != nil {
 			return err
+		}
+		if versionIndex == 0 {
+			s.DiscoveryGroupManager.AddGroup(apiGroup)
+			container.Add(discovery.NewAPIGroupHandler(s.Serializer, apiGroup).WebService())
 		}
 	}
 	return nil
@@ -45,7 +66,7 @@ func cmAPI(
 	rootPath string,
 	groupInfo *genericapiserver.APIGroupInfo,
 	groupVersion schema.GroupVersion,
-	metricsProvider provider.CustomMetricProvider,
+	metricsProvider provider.CustomMetricsProvider,
 ) *specificapi.MetricsAPIGroupVersion {
 	resourceStorage := metricstorage.NewREST(metricsProvider)
 

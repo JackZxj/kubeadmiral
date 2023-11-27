@@ -40,6 +40,7 @@ import (
 	metricsinstall "k8s.io/metrics/pkg/apis/metrics/install"
 	metricsv1beta1 "k8s.io/metrics/pkg/apis/metrics/v1beta1"
 	custommetricsscheme "k8s.io/metrics/pkg/client/custom_metrics/scheme"
+	"sigs.k8s.io/custom-metrics-apiserver/pkg/apiserver/installer"
 
 	hpaaggregatorapi "github.com/kubewharf/kubeadmiral/pkg/apis/hpaaggregator"
 	"github.com/kubewharf/kubeadmiral/pkg/apis/hpaaggregator/install"
@@ -68,6 +69,9 @@ func init() {
 	install.Install(Scheme)
 	metricsinstall.Install(Scheme)
 	custommetricsscheme.AddToScheme(Scheme)
+
+	// we need custom conversion functions to list resources with options
+	utilruntime.Must(installer.RegisterConversions(Scheme))
 
 	// we need to add the options to empty v1
 	// TODO fix the server code to avoid this

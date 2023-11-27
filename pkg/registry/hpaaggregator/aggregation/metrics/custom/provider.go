@@ -104,8 +104,11 @@ func (c *CustomMetricsProvider) GetMetricByName(
 					return
 				}
 			}
+			if metric == nil {
+				return
+			}
 
-			var m *custom_metrics.MetricValue
+			m := &custom_metrics.MetricValue{}
 			if err = converter.Scheme().Convert(metric, m, nil); err != nil {
 				return
 			}
@@ -175,8 +178,11 @@ func (c *CustomMetricsProvider) GetMetricBySelector(
 					return
 				}
 			}
+			if metrics == nil || len(metrics.Items) == 0 {
+				return
+			}
 
-			var m *custom_metrics.MetricValueList
+			m := &custom_metrics.MetricValueList{}
 			if err = converter.Scheme().Convert(metrics, m, nil); err != nil {
 				return
 			}
