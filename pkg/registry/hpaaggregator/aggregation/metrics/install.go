@@ -40,27 +40,6 @@ import (
 	"github.com/kubewharf/kubeadmiral/pkg/registry/hpaaggregator/aggregation/metrics/resource"
 )
 
-// Install builds the metrics for the metrics.k8s.io API, and then installs it into the given API metrics-server.
-func Install(
-	prefix string,
-	m resource.MetricsGetter,
-	podMetadataLister cache.GenericLister,
-	nodeLister corev1.NodeLister,
-	storages map[string]rest.Storage,
-	nodeSelector []labels.Requirement,
-) error {
-	if storages == nil {
-		return fmt.Errorf("storages should not be nil")
-	}
-	node := resource.NewNodeMetrics(metrics.Resource("nodemetrics"), m, nodeLister, nodeSelector)
-	pod := resource.NewPodMetrics(metrics.Resource("podmetrics"), m, podMetadataLister)
-
-	prefix = path.Join(prefix, "apis", metrics.GroupName, v1beta1.SchemeGroupVersion.Version)
-	storages[prefix+"/nodes"] = node
-	storages[prefix+"/pods"] = pod
-	return nil
-}
-
 func InstallMetrics(
 	parentPath string,
 	c genericapiserver.CompletedConfig,

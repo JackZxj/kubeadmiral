@@ -35,8 +35,11 @@ import (
 	kubeclient "k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/klog/v2"
+	custommetricsv1beta1 "k8s.io/metrics/pkg/apis/custom_metrics/v1beta1"
+	custommetricsv1beta2 "k8s.io/metrics/pkg/apis/custom_metrics/v1beta2"
 	metricsinstall "k8s.io/metrics/pkg/apis/metrics/install"
 	metricsv1beta1 "k8s.io/metrics/pkg/apis/metrics/v1beta1"
+	custommetricsscheme "k8s.io/metrics/pkg/client/custom_metrics/scheme"
 
 	hpaaggregatorapi "github.com/kubewharf/kubeadmiral/pkg/apis/hpaaggregator"
 	"github.com/kubewharf/kubeadmiral/pkg/apis/hpaaggregator/install"
@@ -64,6 +67,7 @@ var (
 func init() {
 	install.Install(Scheme)
 	metricsinstall.Install(Scheme)
+	custommetricsscheme.AddToScheme(Scheme)
 
 	// we need to add the options to empty v1
 	// TODO fix the server code to avoid this
@@ -165,6 +169,7 @@ func (c completedConfig) New() (*Server, error) {
 	}
 
 	root := path.Join("/apis", v1alpha1.SchemeGroupVersion.Group, v1alpha1.SchemeGroupVersion.Version, "aggregation")
+
 	if err := metrics2.InstallMetrics(
 		root,
 		c.GenericConfig,
@@ -179,9 +184,23 @@ func (c completedConfig) New() (*Server, error) {
 	); err != nil {
 		return nil, err
 	}
+
+	if err := metrics2.InstallCustomMetricsAPI(
+		root,
+		Scheme,
+		ParameterCodec,
+		Codecs,
+		genericServer,
+		c.ExtraConfig.FederatedInformerManager,
+	); err != nil {
+		return nil, err
+	}
+
 	c.ExtraConfig.RequestInfoResolver.InsertCustomPrefixes(serverconfig.NewDefaultResolver(root))
 	c.ExtraConfig.RequestInfoResolver.InsertConnecterBlacklist(
 		path.Join(root, "apis", metricsv1beta1.SchemeGroupVersion.String()),
+		path.Join(root, "apis", custommetricsv1beta1.SchemeGroupVersion.String()),
+		path.Join(root, "apis", custommetricsv1beta2.SchemeGroupVersion.String()),
 	)
 
 	return s, nil
