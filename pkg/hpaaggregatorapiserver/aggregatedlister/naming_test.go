@@ -5,6 +5,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	fedcorev1a1 "github.com/kubewharf/kubeadmiral/pkg/apis/core/v1alpha1"
@@ -85,4 +87,38 @@ func TestGetPossibleClusters(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestMakePodUniquea(t *testing.T) {
+	clusterName := "cluster"
+	podName := "pod"
+	nodeName := "node"
+
+	pod := &corev1.Pod{}
+	pod.SetName(podName)
+	MakePodUnique(pod, clusterName)
+	assert.Equal(t, GenUniqueName(clusterName, podName), pod.GetName())
+	assert.Equal(t, clusterName, pod.GetAnnotations()[ClusterNameAnnotationKey])
+	assert.Equal(t, podName, pod.GetAnnotations()[RawNameAnnotationKey])
+	assert.Equal(t, "", pod.Spec.NodeName)
+
+	pod = &corev1.Pod{}
+	pod.SetName(podName)
+	pod.Spec.NodeName = nodeName
+	MakePodUnique(pod, clusterName)
+	assert.Equal(t, GenUniqueName(clusterName, podName), pod.GetName())
+	assert.Equal(t, clusterName, pod.GetAnnotations()[ClusterNameAnnotationKey])
+	assert.Equal(t, podName, pod.GetAnnotations()[RawNameAnnotationKey])
+	assert.Equal(t, GenUniqueName(clusterName, nodeName), pod.Spec.NodeName)
+}
+
+func TestMakeObjectUniquea(t *testing.T) {
+	clusterName := "cluster"
+	obj := &corev1.ConfigMap{}
+	obj.SetName("cm")
+
+	MakeObjectUnique(obj, clusterName)
+	assert.Equal(t, GenUniqueName(clusterName, "cm"), obj.GetName())
+	assert.Equal(t, clusterName, obj.GetAnnotations()[ClusterNameAnnotationKey])
+	assert.Equal(t, "cm", obj.GetAnnotations()[RawNameAnnotationKey])
 }

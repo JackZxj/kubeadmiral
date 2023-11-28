@@ -11,6 +11,7 @@ import (
 	genericapi "k8s.io/apiserver/pkg/endpoints"
 	"k8s.io/apiserver/pkg/endpoints/discovery"
 	genericapiserver "k8s.io/apiserver/pkg/server"
+	"k8s.io/klog/v2"
 	"k8s.io/metrics/pkg/apis/custom_metrics"
 	specificapi "sigs.k8s.io/custom-metrics-apiserver/pkg/apiserver/installer"
 	"sigs.k8s.io/custom-metrics-apiserver/pkg/provider"
@@ -27,8 +28,13 @@ func InstallCustomMetricsAPI(
 	codecs serializer.CodecFactory,
 	s *genericapiserver.GenericAPIServer,
 	federatedInformerManager informermanager.FederatedInformerManager,
+	logger klog.Logger,
 ) error {
-	metricsProvider := custom.NewCustomMetricsProvider(federatedInformerManager)
+	metricsProvider := custom.NewCustomMetricsProvider(
+		federatedInformerManager,
+		0,
+		logger,
+	)
 	root := path.Join(parentPath, "apis")
 
 	groupInfo := genericapiserver.NewDefaultAPIGroupInfo(custom_metrics.GroupName, scheme, parameterCodec, codecs)

@@ -17,9 +17,11 @@ limitations under the License.
 package options
 
 import (
+	"errors"
 	"flag"
 	"fmt"
 	"net"
+	"net/http"
 	"os"
 	"strings"
 	"time"
@@ -32,6 +34,7 @@ import (
 	"k8s.io/apiserver/pkg/endpoints/openapi"
 	"k8s.io/apiserver/pkg/features"
 	genericapiserver "k8s.io/apiserver/pkg/server"
+	"k8s.io/apiserver/pkg/server/healthz"
 	genericoptions "k8s.io/apiserver/pkg/server/options"
 	utilfeature "k8s.io/apiserver/pkg/util/feature"
 	dynamicclient "k8s.io/client-go/dynamic"
@@ -214,6 +217,15 @@ func (o *Options) Config() (*apiserver.Config, error) {
 		},
 		fedInformerFactory.Core().V1alpha1().FederatedTypeConfigs(),
 		fedInformerFactory.Core().V1alpha1().FederatedClusters(),
+	)
+
+	serverConfig.AddReadyzChecks(
+		healthz.NamedCheck("federated-informer-manager-sync", func(_ *http.Request) error {
+			if !federatedInformerManager.HasSynced() {
+				return errors.New("federated informer manager has not yet synchronized")
+			}
+			return nil
+		}),
 	)
 
 	config := &apiserver.Config{

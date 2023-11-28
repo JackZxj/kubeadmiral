@@ -82,7 +82,6 @@ func (m *PodMetrics) List(ctx context.Context, options *metainternalversion.List
 	if err != nil {
 		return &metrics.PodMetricsList{}, err
 	}
-	fmt.Println("######metrics pods", pods)
 	ms, err := m.getMetrics(pods...)
 	if err != nil {
 		namespace := genericapirequest.NamespaceValue(ctx)

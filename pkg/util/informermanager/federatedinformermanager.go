@@ -395,7 +395,7 @@ func (m *federatedInformerManager) GetClusterRestConfig(cluster string) (config 
 	m.lock.RLock()
 	defer m.lock.RUnlock()
 	config, ok := m.restConfigs[cluster]
-	return config, ok
+	return rest.CopyConfig(config), ok
 }
 
 func (m *federatedInformerManager) GetReadyClusters() ([]*fedcorev1a1.FederatedCluster, error) {

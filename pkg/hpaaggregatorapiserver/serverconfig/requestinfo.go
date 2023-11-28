@@ -2,7 +2,6 @@ package serverconfig
 
 import (
 	"context"
-	"fmt"
 	"net/http"
 	"strings"
 	"sync"
@@ -57,7 +56,6 @@ func (r *RequestInfoResolver) NewRequestInfo(req *http.Request) (*apirequest.Req
 		info.Name = "this-name-can-not-be-used"
 	}
 
-	fmt.Printf("#### serverconfig/requestinfo: %+v,%v\n", info, err)
 	return info, err
 }
 

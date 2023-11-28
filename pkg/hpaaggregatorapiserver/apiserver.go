@@ -18,7 +18,6 @@ package hpaaggregatorapiserver
 
 import (
 	"context"
-	"fmt"
 	"path"
 	"time"
 
@@ -53,7 +52,7 @@ import (
 	"github.com/kubewharf/kubeadmiral/pkg/hpaaggregatorapiserver/serverconfig"
 	"github.com/kubewharf/kubeadmiral/pkg/registry"
 	"github.com/kubewharf/kubeadmiral/pkg/registry/hpaaggregator/aggregation"
-	metrics2 "github.com/kubewharf/kubeadmiral/pkg/registry/hpaaggregator/aggregation/metrics"
+	metricsaggregator "github.com/kubewharf/kubeadmiral/pkg/registry/hpaaggregator/aggregation/metrics"
 	"github.com/kubewharf/kubeadmiral/pkg/registry/hpaaggregator/externalmetricadaptor"
 	"github.com/kubewharf/kubeadmiral/pkg/util/informermanager"
 )
@@ -169,7 +168,7 @@ func (c completedConfig) New() (*Server, error) {
 		"",
 		c.ExtraConfig.RestConfig,
 		time.Duration(c.GenericConfig.MinRequestTimeout)*time.Second,
-		klog.Background().WithValues("api", "hpa-aggregation"),
+		klog.Background().WithValues("api", "aggregation"),
 	)
 	v1alpha1storage["aggregation"] = registry.RESTInPeace(aggregationAPI, err)
 	apiGroupInfo.VersionedResourcesStorageMap[v1alpha1.SchemeGroupVersion.Version] = v1alpha1storage
@@ -180,7 +179,7 @@ func (c completedConfig) New() (*Server, error) {
 
 	root := path.Join("/apis", v1alpha1.SchemeGroupVersion.Group, v1alpha1.SchemeGroupVersion.Version, "aggregation")
 
-	if err := metrics2.InstallMetrics(
+	if err := metricsaggregator.InstallMetrics(
 		root,
 		c.GenericConfig,
 		Scheme,
@@ -195,13 +194,14 @@ func (c completedConfig) New() (*Server, error) {
 		return nil, err
 	}
 
-	if err := metrics2.InstallCustomMetricsAPI(
+	if err := metricsaggregator.InstallCustomMetricsAPI(
 		root,
 		Scheme,
 		ParameterCodec,
 		Codecs,
 		genericServer,
 		c.ExtraConfig.FederatedInformerManager,
+		klog.Background().WithValues("api", "custom-metrics"),
 	); err != nil {
 		return nil, err
 	}
@@ -216,19 +216,14 @@ func (c completedConfig) New() (*Server, error) {
 	return s, nil
 }
 
-func (e *ExtraConfig) Run(ctx context.Context) error {
-	ctx, cancel := context.WithTimeout(ctx, 60*time.Second)
-	defer cancel()
-
+func (e *ExtraConfig) Run(ctx context.Context) {
 	e.FedInformerFactory.Start(ctx.Done())
 	e.FederatedInformerManager.Start(ctx)
 
 	if !cache.WaitForNamedCacheSync("hpa-aggregator", ctx.Done(), e.FederatedInformerManager.HasSynced) {
 		klog.Error("Timed out waiting for cache sync")
-		fmt.Println("#### Timed out waiting for cache sync")
-		return fmt.Errorf("failed to wait for cache sync")
+		return
 	}
 	klog.Info("FederatedInformerManager started")
-	fmt.Println("##### FederatedInformerManager started")
-	return nil
+	return
 }

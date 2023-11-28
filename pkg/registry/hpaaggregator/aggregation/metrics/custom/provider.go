@@ -6,6 +6,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
 
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -14,6 +15,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/discovery"
+	"k8s.io/klog/v2"
 	"k8s.io/metrics/pkg/apis/custom_metrics"
 	"k8s.io/metrics/pkg/apis/custom_metrics/v1beta2"
 	custommetricsclient "k8s.io/metrics/pkg/client/custom_metrics"
@@ -25,41 +27,56 @@ import (
 
 var (
 	converter = custommetricsclient.NewMetricConverter()
+
+	defaultTimeout = 10 * time.Second
 )
+
+const providerName = "custom-metrics-provider"
 
 type CustomMetricsProvider struct {
 	federatedInformerManager informermanager.FederatedInformerManager
+	timeout                  time.Duration
+	logger                   klog.Logger
 }
 
 var _ provider.CustomMetricsProvider = &CustomMetricsProvider{}
 
 func NewCustomMetricsProvider(
 	federatedInformerManager informermanager.FederatedInformerManager,
+	timeout time.Duration,
+	logger klog.Logger,
 ) *CustomMetricsProvider {
+	if timeout == 0 {
+		timeout = defaultTimeout
+	}
 	p := &CustomMetricsProvider{
 		federatedInformerManager: federatedInformerManager,
+		timeout:                  timeout,
+		logger:                   logger.WithValues("provider", providerName),
 	}
 	return p
 }
 
 func (c *CustomMetricsProvider) newCustomMetricsClient(
 	cluster string,
-) (meta.RESTMapper, custommetricsclient.CustomMetricsClient, error) {
+) (discovery.DiscoveryInterface, meta.RESTMapper, custommetricsclient.CustomMetricsClient, error) {
 	config, ok := c.federatedInformerManager.GetClusterRestConfig(cluster)
 	if !ok {
-		return nil, nil, fmt.Errorf("failed to get rest config for %s", cluster)
+		return nil, nil, nil, fmt.Errorf("failed to get rest config for %s", cluster)
 	}
-	client, ok := c.federatedInformerManager.GetClusterDiscoveryClient(cluster)
-	if !ok {
-		return nil, nil, fmt.Errorf("failed to get discovery client for %s", cluster)
+	config.Timeout = c.timeout
+
+	client, err := discovery.NewDiscoveryClientForConfig(config)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("failed to get discovery client for %s", cluster)
 	}
 	mapper, err := apiutil.NewDynamicRESTMapper(config, apiutil.WithLazyDiscovery)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	apiVersionsGetter := custommetricsclient.NewAvailableAPIsGetter(client)
 
-	return mapper, custommetricsclient.NewForConfig(config, mapper, apiVersionsGetter), err
+	return client, mapper, custommetricsclient.NewForConfig(config, mapper, apiVersionsGetter), err
 }
 
 func (c *CustomMetricsProvider) GetMetricByName(
@@ -72,8 +89,13 @@ func (c *CustomMetricsProvider) GetMetricByName(
 	if err != nil {
 		return nil, err
 	}
+	logger := c.logger.WithValues(
+		"operation", "get-metrics-by-name",
+		"target", name.String(),
+		"gr", info.GroupResource.String(),
+		"metrics", info.Metric,
+	)
 
-	//TODO: context timeout
 	var wg sync.WaitGroup
 	var lock sync.Mutex
 	collections := map[string]*custom_metrics.MetricValue{}
@@ -81,35 +103,36 @@ func (c *CustomMetricsProvider) GetMetricByName(
 		wg.Add(1)
 		go func(cluster string) {
 			defer wg.Done()
+			logger := logger.WithValues("cluster", cluster)
 
-			mapper, client, err := c.newCustomMetricsClient(cluster)
+			_, mapper, client, err := c.newCustomMetricsClient(cluster)
 			if err != nil {
+				logger.V(4).Info("Failed to get cluster client, won't retry", "err", err)
 				return
 			}
 			// find the target gvk
 			gvk, err := mapper.KindFor(info.GroupResource.WithVersion(""))
 			if err != nil {
+				logger.V(4).Info("Failed to find the GVK, won't retry", "err", err)
 				return
 			}
 
 			var metric *v1beta2.MetricValue
 			if info.Namespaced {
-				metric, err = client.NamespacedMetrics(name.Namespace).GetForObject(gvk.GroupKind(), name.Name, info.Metric, metricSelector)
-				if err != nil {
-					return
-				}
+				metric, err = client.NamespacedMetrics(name.Namespace).
+					GetForObject(gvk.GroupKind(), name.Name, info.Metric, metricSelector)
 			} else {
-				metric, err = client.RootScopedMetrics().GetForObject(gvk.GroupKind(), name.Name, info.Metric, metricSelector)
-				if err != nil {
-					return
-				}
+				metric, err = client.RootScopedMetrics().
+					GetForObject(gvk.GroupKind(), name.Name, info.Metric, metricSelector)
 			}
-			if metric == nil {
+			if err != nil {
+				logger.V(4).Info("Failed to get the metric, won't retry", "err", err)
 				return
 			}
 
 			m := &custom_metrics.MetricValue{}
 			if err = converter.Scheme().Convert(metric, m, nil); err != nil {
+				logger.V(4).Info("Failed to convert metric", "err", err)
 				return
 			}
 
@@ -146,8 +169,13 @@ func (c *CustomMetricsProvider) GetMetricBySelector(
 	if err != nil {
 		return nil, err
 	}
+	logger := c.logger.WithValues(
+		"operation", "get-metrics-by-selector",
+		"namespace", namespace,
+		"gr", info.GroupResource.String(),
+		"metrics", info.Metric,
+	)
 
-	//TODO: context timeout
 	var wg sync.WaitGroup
 	var lock sync.Mutex
 	collections := map[string]*custom_metrics.MetricValueList{}
@@ -155,35 +183,39 @@ func (c *CustomMetricsProvider) GetMetricBySelector(
 		wg.Add(1)
 		go func(cluster string) {
 			defer wg.Done()
+			logger := logger.WithValues("cluster", cluster)
 
-			mapper, client, err := c.newCustomMetricsClient(cluster)
+			_, mapper, client, err := c.newCustomMetricsClient(cluster)
 			if err != nil {
+				logger.V(4).Info("Failed to get cluster client, won't retry", "err", err)
 				return
 			}
 			// find the target gvk
 			gvk, err := mapper.KindFor(info.GroupResource.WithVersion(""))
 			if err != nil {
+				logger.V(4).Info("Failed to find the GVK, won't retry", "err", err)
 				return
 			}
 
 			var metrics *v1beta2.MetricValueList
 			if info.Namespaced {
-				metrics, err = client.NamespacedMetrics(namespace).GetForObjects(gvk.GroupKind(), selector, info.Metric, metricSelector)
-				if err != nil {
-					return
-				}
+				metrics, err = client.NamespacedMetrics(namespace).
+					GetForObjects(gvk.GroupKind(), selector, info.Metric, metricSelector)
 			} else {
-				metrics, err = client.RootScopedMetrics().GetForObjects(gvk.GroupKind(), selector, info.Metric, metricSelector)
-				if err != nil {
-					return
-				}
+				metrics, err = client.RootScopedMetrics().
+					GetForObjects(gvk.GroupKind(), selector, info.Metric, metricSelector)
 			}
-			if metrics == nil || len(metrics.Items) == 0 {
+			if err != nil {
+				logger.V(4).Info("Failed to get the metric list", "err", err)
+				return
+			}
+			if len(metrics.Items) == 0 {
 				return
 			}
 
 			m := &custom_metrics.MetricValueList{}
 			if err = converter.Scheme().Convert(metrics, m, nil); err != nil {
+				logger.V(4).Info("Failed to convert metric list", "err", err)
 				return
 			}
 
@@ -222,7 +254,7 @@ func (c *CustomMetricsProvider) ListAllMetrics() []provider.CustomMetricInfo {
 		go func(cluster string) {
 			defer wg.Done()
 
-			_, metricInfos := c.getMetricsInfos(cluster)
+			metricInfos := c.listMetricsInfo(cluster)
 
 			lock.Lock()
 			defer lock.Unlock()
@@ -241,15 +273,15 @@ func (c *CustomMetricsProvider) ListAllMetrics() []provider.CustomMetricInfo {
 	return infos
 }
 
-func (c *CustomMetricsProvider) getMetricsInfos(cluster string) (gv string, resources []provider.CustomMetricInfo) {
-	discoveryClient, ok := c.federatedInformerManager.GetClusterDiscoveryClient(cluster)
-	if !ok {
-		return "", nil
+func (c *CustomMetricsProvider) listMetricsInfo(cluster string) (resources []provider.CustomMetricInfo) {
+	discoveryClient, _, _, err := c.newCustomMetricsClient(cluster)
+	if err != nil {
+		return nil
 	}
 
 	resourceList, err := getSupportedCustomMetricsAPIVersion(discoveryClient)
 	if err != nil {
-		return "", nil
+		return nil
 	}
 
 	metricInfos := make([]provider.CustomMetricInfo, 0, len(resourceList.APIResources))
@@ -265,10 +297,12 @@ func (c *CustomMetricsProvider) getMetricsInfos(cluster string) (gv string, reso
 			Metric:        info[1],
 		})
 	}
-	return resourceList.GroupVersion, metricInfos
+	return metricInfos
 }
 
-func getSupportedCustomMetricsAPIVersion(client discovery.DiscoveryInterface) (resources *metav1.APIResourceList, err error) {
+func getSupportedCustomMetricsAPIVersion(
+	client discovery.DiscoveryInterface,
+) (resources *metav1.APIResourceList, err error) {
 	groups, err := client.ServerGroups()
 	if err != nil {
 		return nil, err

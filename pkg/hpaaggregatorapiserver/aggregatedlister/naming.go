@@ -22,6 +22,7 @@ func GenUniqueName(cluster, rawName string) string {
 	return naming.GenerateFederatedObjectName(cluster, rawName)
 }
 
+// GetPossibleClusters returns the most matchable clusters from the target name
 func GetPossibleClusters(clusters []*fedcorev1a1.FederatedCluster, targetName string) []string {
 	possibleClusters := make([]string, 0, len(clusters))
 	for _, cluster := range clusters {

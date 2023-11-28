@@ -18,7 +18,6 @@ package main
 
 import (
 	"context"
-	"fmt"
 	_ "net/http/pprof"
 	"os"
 
@@ -44,5 +43,5 @@ func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	signals.SetupSignalHandler(cancel)
 
-	fmt.Println(app.Run(ctx, opts))
+	app.Run(ctx, opts)
 }
