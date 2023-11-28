@@ -17,7 +17,7 @@ type RequestInfoResolver struct {
 
 	customPrefixes     map[string]*CustomResolver
 	connecterBlacklist sets.Set[string]
-	defaultResolver    *apirequest.RequestInfoFactory
+	basicResolver      *apirequest.RequestInfoFactory
 }
 
 type CustomResolver struct {
@@ -30,7 +30,7 @@ var _ apirequest.RequestInfoResolver = &RequestInfoResolver{}
 func NewRequestInfoResolver(c *genericapiserver.Config) *RequestInfoResolver {
 	return &RequestInfoResolver{
 		customPrefixes:     map[string]*CustomResolver{},
-		defaultResolver:    genericapiserver.NewRequestInfoResolver(c),
+		basicResolver:      genericapiserver.NewRequestInfoResolver(c),
 		connecterBlacklist: sets.Set[string]{},
 	}
 }
@@ -50,11 +50,11 @@ func (r *RequestInfoResolver) NewRequestInfo(req *http.Request) (*apirequest.Req
 		reqCopy = req.Clone(context.Background())
 		reqCopy.URL.Path = result
 	}
-	info, err := r.defaultResolver.NewRequestInfo(reqCopy)
+	info, err := r.basicResolver.NewRequestInfo(reqCopy)
 	if err == nil && !r.inBlacklist(req.URL.Path) && info.Name == "" {
 		// The name is required but not used in our rest.Connecter, so we have to set a default value
 		// into it to avoid "name must be provided" error.
-		info.Name = "default"
+		info.Name = "this-name-can-not-be-used"
 	}
 
 	fmt.Printf("#### serverconfig/requestinfo: %+v,%v\n", info, err)

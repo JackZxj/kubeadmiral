@@ -94,6 +94,10 @@ func InstallMetrics(
 		if versionIndex == 0 {
 			s.DiscoveryGroupManager.AddGroup(apiGroup)
 			container.Add(discovery.NewAPIGroupHandler(s.Serializer, apiGroup).WebService())
+
+			// add it for discovery
+			root := path.Join("/apis", mainGroupVer.String())
+			addNewRedirect(root, path.Join(parentPath, root), container)
 		}
 	}
 

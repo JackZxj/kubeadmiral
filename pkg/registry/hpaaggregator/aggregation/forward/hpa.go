@@ -40,7 +40,7 @@ import (
 	"k8s.io/apiserver/pkg/endpoints/handlers"
 	genericapirequest "k8s.io/apiserver/pkg/endpoints/request"
 	"k8s.io/apiserver/pkg/registry/rest"
-	"k8s.io/client-go/dynamic"
+	restclient "k8s.io/client-go/rest"
 	"k8s.io/klog/v2"
 	"k8s.io/kubernetes/pkg/apis/autoscaling"
 
@@ -119,7 +119,7 @@ type HPAHandler interface {
 }
 
 type HPAREST struct {
-	client dynamic.Interface
+	restConfig *restclient.Config
 
 	scheme            *runtime.Scheme
 	tableConvertor    rest.TableConvertor
@@ -134,12 +134,12 @@ var _ rest.Updater = &HPAREST{}
 var _ HPAHandler = &HPAREST{}
 
 func NewHPAREST(
-	client dynamic.Interface,
+	adminConfig *restclient.Config,
 	scheme *runtime.Scheme,
 	minRequestTimeout time.Duration,
 ) *HPAREST {
 	return &HPAREST{
-		client:            client,
+		restConfig:        adminConfig,
 		scheme:            scheme,
 		tableConvertor:    tableConvertor,
 		minRequestTimeout: minRequestTimeout,
@@ -189,7 +189,12 @@ func (h *HPAREST) Update(
 	}
 	gvr := getGVRFromRequestInfo(requestInfo)
 
-	if obj, err := h.client.
+	client, err := newUserClientFromContext(ctx, h.restConfig)
+	if err != nil {
+		return nil, false, err
+	}
+
+	if obj, err := client.
 		Resource(gvr).
 		Namespace(requestInfo.Namespace).
 		Get(ctx, name, metav1.GetOptions{}); err != nil {
@@ -213,9 +218,9 @@ func (h *HPAREST) Update(
 		opts = *options
 	}
 	if requestInfo.Subresource == "status" {
-		uns, err = h.client.Resource(gvr).Namespace(requestInfo.Namespace).UpdateStatus(ctx, uns, opts)
+		uns, err = client.Resource(gvr).Namespace(requestInfo.Namespace).UpdateStatus(ctx, uns, opts)
 	} else {
-		uns, err = h.client.Resource(gvr).Namespace(requestInfo.Namespace).Update(ctx, uns, opts)
+		uns, err = client.Resource(gvr).Namespace(requestInfo.Namespace).Update(ctx, uns, opts)
 	}
 	return uns, false, err
 }
@@ -227,11 +232,16 @@ func (h *HPAREST) Watch(ctx context.Context, options *metainternalversion.ListOp
 	}
 	gvr := getGVRFromRequestInfo(requestInfo)
 
+	client, err := newUserClientFromContext(ctx, h.restConfig)
+	if err != nil {
+		return nil, err
+	}
+
 	opt, err := h.convertListOptions(options)
 	if err != nil {
 		return nil, errors.New("failed to convert ListOptions in the context")
 	}
-	return h.client.
+	return client.
 		Resource(gvr).
 		Namespace(requestInfo.Namespace).
 		Watch(ctx, opt)
@@ -248,12 +258,17 @@ func (h *HPAREST) List(ctx context.Context, options *metainternalversion.ListOpt
 	}
 	gvr := getGVRFromRequestInfo(requestInfo)
 
+	client, err := newUserClientFromContext(ctx, h.restConfig)
+	if err != nil {
+		return nil, err
+	}
+
 	opt, err := h.convertListOptions(options)
 	if err != nil {
 		return nil, errors.New("failed to convert ListOptions in the context")
 	}
 
-	objs, err := h.client.Resource(gvr).
+	objs, err := client.Resource(gvr).
 		Namespace(requestInfo.Namespace).
 		List(ctx, opt)
 	if err != nil {
@@ -305,11 +320,16 @@ func (h *HPAREST) Get(ctx context.Context, name string, options *metav1.GetOptio
 	}
 	gvr := getGVRFromRequestInfo(requestInfo)
 
+	client, err := newUserClientFromContext(ctx, h.restConfig)
+	if err != nil {
+		return nil, err
+	}
+
 	opt := metav1.GetOptions{}
 	if options != nil {
 		opt = *options
 	}
-	obj, err := h.client.
+	obj, err := client.
 		Resource(gvr).
 		Namespace(requestInfo.Namespace).
 		Get(ctx, name, opt, requestInfo.Subresource)

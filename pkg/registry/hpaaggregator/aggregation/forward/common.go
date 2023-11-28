@@ -1,12 +1,19 @@
 package forward
 
 import (
+	"context"
+	"errors"
+
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/runtime/serializer"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
+	"k8s.io/apiserver/pkg/authentication/user"
+	genericapirequest "k8s.io/apiserver/pkg/endpoints/request"
+	"k8s.io/client-go/dynamic"
+	restclient "k8s.io/client-go/rest"
 	"k8s.io/kubernetes/pkg/printers"
 	printersinternal "k8s.io/kubernetes/pkg/printers/internalversion"
 	printerstorage "k8s.io/kubernetes/pkg/printers/storage"
@@ -42,4 +49,28 @@ func init() {
 	utilruntime.Must(addToScheme(scheme))
 
 	scheme.AddUnversionedTypes(unversionedVersion, unversionedTypes...)
+}
+
+func newUserClientFromContext(ctx context.Context, config *restclient.Config) (dynamic.Interface, error) {
+	copyConfig, err := newCopyConfigForUser(ctx, config)
+	if err != nil {
+		return nil, err
+	}
+	return dynamic.NewForConfig(copyConfig)
+}
+
+func newCopyConfigForUser(ctx context.Context, config *restclient.Config) (*restclient.Config, error) {
+	requester, exist := genericapirequest.UserFrom(ctx)
+	if !exist {
+		return nil, errors.New("no user found for request")
+	}
+	copyConfig := restclient.CopyConfig(config)
+	copyConfig.Impersonate.UserName = requester.GetName()
+	for _, group := range requester.GetGroups() {
+		if group != user.AllAuthenticated && group != user.AllUnauthenticated {
+			copyConfig.Impersonate.Groups = append(copyConfig.Impersonate.Groups, group)
+		}
+	}
+	copyConfig.Impersonate.Extra = requester.GetExtra()
+	return copyConfig, nil
 }

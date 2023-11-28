@@ -101,7 +101,7 @@ func NewREST(
 	)
 
 	hpaHandler := forward.NewHPAREST(
-		kubeClient,
+		config,
 		scheme,
 		minRequestTimeout,
 	)
