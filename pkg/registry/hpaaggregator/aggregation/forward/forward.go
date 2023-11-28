@@ -27,6 +27,7 @@ import (
 	"k8s.io/apiserver/pkg/endpoints/handlers/responsewriters"
 	"k8s.io/apiserver/pkg/endpoints/request"
 	"k8s.io/apiserver/pkg/registry/rest"
+	restclient "k8s.io/client-go/rest"
 
 	"github.com/kubewharf/kubeadmiral/pkg/hpaaggregatorapiserver/serverconfig"
 )
@@ -36,10 +37,9 @@ func NewForwardHandler(
 	forwardPath string,
 	transport http.RoundTripper,
 	r rest.Responder,
+	adminConfig *restclient.Config,
 ) (http.Handler, error) {
 	return http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
-		// TODO: support cert and key
-		serverconfig.RecoverAuthentication(req)
 		if !serverconfig.RecoverImpersonation(req) {
 			requester, exist := request.UserFrom(req.Context())
 			if !exist {
@@ -51,6 +51,16 @@ func NewForwardHandler(
 				if group != user.AllAuthenticated && group != user.AllUnauthenticated {
 					req.Header.Add(authenticationv1.ImpersonateGroupHeader, group)
 				}
+			}
+		}
+		var err error
+		if !serverconfig.RecoverAuthentication(req) {
+			// If the request without an auth token (eg: tls auth),
+			// we use admin config and ImpersonateUser to forward
+			transport, err = restclient.TransportFor(adminConfig)
+			if err != nil {
+				responsewriters.InternalError(rw, req, errors.New("failed to new transport"))
+				return
 			}
 		}
 

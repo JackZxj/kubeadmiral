@@ -41,6 +41,7 @@ import (
 	"k8s.io/apiserver/pkg/registry/rest"
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/klog/v2"
+	api "k8s.io/kubernetes/pkg/apis/core"
 
 	"github.com/kubewharf/kubeadmiral/pkg/hpaaggregatorapiserver/aggregatedlister"
 	"github.com/kubewharf/kubeadmiral/pkg/util/informermanager"
@@ -139,6 +140,7 @@ type PodHandler interface {
 type PodREST struct {
 	podLister                cache.GenericLister
 	federatedInformerManager informermanager.FederatedInformerManager
+	scheme                   *runtime.Scheme
 	minRequestTimeout        time.Duration
 
 	tableConvertor rest.TableConvertor
@@ -151,11 +153,13 @@ var _ PodHandler = &PodREST{}
 
 func NewPodREST(
 	f informermanager.FederatedInformerManager,
+	scheme *runtime.Scheme,
 	podLister cache.GenericLister,
 	minRequestTimeout time.Duration,
 ) *PodREST {
 	return &PodREST{
 		federatedInformerManager: f,
+		scheme:                   scheme,
 		podLister:                podLister,
 		minRequestTimeout:        minRequestTimeout,
 		tableConvertor:           tableConvertor,
@@ -199,21 +203,6 @@ func (p *PodREST) newScoper(r *genericapirequest.RequestInfoFactory) *handlers.R
 	}
 }
 
-//func (p *PodREST) newScoper2() *handlers.RequestScope {
-//	return &handlers.RequestScope{
-//		Namer: handlers.ContextBasedNaming{
-//			Namer:         runtime.Namer(meta.NewAccessor()),
-//			ClusterScoped: false,
-//		},
-//		Serializer:       p.serializer,
-//		Kind:             corev1.SchemeGroupVersion.WithKind("Pod"),
-//		TableConvertor:   p,
-//		Convertor:        p.scheme,
-//		MetaGroupVersion: metav1.SchemeGroupVersion,
-//		Resource:         corev1.SchemeGroupVersion.WithResource("pods"),
-//	}
-//}
-
 // Get ...
 func (p *PodREST) Get(ctx context.Context, name string, opts *metav1.GetOptions) (runtime.Object, error) {
 	namespace := genericapirequest.NamespaceValue(ctx)
@@ -221,16 +210,21 @@ func (p *PodREST) Get(ctx context.Context, name string, opts *metav1.GetOptions)
 	if err != nil {
 		if apierrors.IsNotFound(err) {
 			// return not-found errors directly
-			return &corev1.Pod{}, err
+			return nil, err
 		}
 		klog.ErrorS(err, "Failed getting pod", "pod", klog.KRef(namespace, name))
-		return &corev1.Pod{}, fmt.Errorf("failed getting pod: %w", err)
+		return nil, fmt.Errorf("failed getting pod: %w", err)
 	}
-	return obj, nil
+
+	pod := &api.Pod{}
+	if err := p.scheme.Convert(obj, pod, nil); err != nil {
+		return nil, fmt.Errorf("failed converting object to Pod: %w", err)
+	}
+	return pod, nil
 }
 
 func (p *PodREST) NewList() runtime.Object {
-	return &corev1.PodList{}
+	return &api.PodList{}
 }
 
 func (p *PodREST) List(ctx context.Context, options *metainternalversion.ListOptions) (runtime.Object, error) {
@@ -250,8 +244,8 @@ func (p *PodREST) List(ctx context.Context, options *metainternalversion.ListOpt
 	if options != nil && options.FieldSelector != nil {
 		field = options.FieldSelector
 	}
-	pods := filterPodObject(objs, field)
-	return &corev1.PodList{Items: pods}, nil
+	pods := p.convertAndFilterPodObject(objs, field)
+	return &api.PodList{Items: pods}, nil
 }
 
 func (p *PodREST) ConvertToTable(ctx context.Context, object runtime.Object, tableOptions runtime.Object) (*metav1.Table, error) {
@@ -314,8 +308,8 @@ func (p *PodREST) Watch(ctx context.Context, options *metainternalversion.ListOp
 	return proxyWatcher, nil
 }
 
-func filterPodObject(objs []runtime.Object, selector fields.Selector) []corev1.Pod {
-	newObjs := make([]corev1.Pod, 0, len(objs))
+func (p *PodREST) convertAndFilterPodObject(objs []runtime.Object, selector fields.Selector) []api.Pod {
+	newObjs := make([]api.Pod, 0, len(objs))
 	for _, obj := range objs {
 		pod, ok := obj.(*corev1.Pod)
 		if !ok {
@@ -325,7 +319,12 @@ func filterPodObject(objs []runtime.Object, selector fields.Selector) []corev1.P
 		if !selector.Matches(fields) {
 			continue
 		}
-		newObjs = append(newObjs, *pod)
+		newPod := &api.Pod{}
+		if err := p.scheme.Convert(obj, newPod, nil); err != nil {
+			fmt.Println("### scheme.Convert", err)
+			continue
+		}
+		newObjs = append(newObjs, *newPod)
 	}
 	return newObjs
 }

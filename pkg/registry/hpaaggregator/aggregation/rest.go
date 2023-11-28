@@ -31,6 +31,7 @@ import (
 	"k8s.io/apiserver/pkg/registry/rest"
 	"k8s.io/client-go/dynamic"
 	corev1 "k8s.io/client-go/listers/core/v1"
+	restclient "k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/klog/v2"
 
@@ -45,8 +46,10 @@ import (
 )
 
 type REST struct {
-	client    dynamic.Interface
-	fedClient fedclient.Interface
+	client     dynamic.Interface
+	fedClient  fedclient.Interface
+	restConfig *restclient.Config
+	scheme     *runtime.Scheme
 
 	federatedInformerManager informermanager.FederatedInformerManager
 
@@ -74,8 +77,10 @@ func NewREST(
 	kubeClient dynamic.Interface,
 	fedClient fedclient.Interface,
 	federatedInformerManager informermanager.FederatedInformerManager,
+	scheme *runtime.Scheme,
 	endpoint string,
 	nodeSelector string,
+	config *restclient.Config,
 	minRequestTimeout time.Duration,
 	logger klog.Logger,
 ) (*REST, error) {
@@ -90,21 +95,25 @@ func NewREST(
 
 	podHandler := forward.NewPodREST(
 		federatedInformerManager,
+		scheme,
 		podLister,
 		minRequestTimeout,
 	)
 
 	hpaHandler := forward.NewHPAREST(
 		kubeClient,
+		scheme,
 		minRequestTimeout,
 	)
 
 	return &REST{
 		client:                   kubeClient,
 		fedClient:                fedClient,
+		restConfig:               config,
+		scheme:                   scheme,
 		federatedInformerManager: federatedInformerManager,
 		APIServer:                api,
-		ProxyTransport:           CreateProxyTransport(),
+		ProxyTransport:           DefaultProxyTransport(),
 		NodeSelector:             nodeSelector,
 		MetricsGetter:            metricsGetter,
 		PodLister:                podLister,
@@ -144,14 +153,12 @@ func (r *REST) Connect(ctx context.Context, _ string, _ runtime.Object, resp res
 		return nil, errors.New("can't proxy to self")
 	case isRequestForPod(requestInfo):
 		return r.podHandler.Handler(ctx)
-	case isRequestForNode(requestInfo):
-		return forward.NewNodeHandler(), nil
 	default:
 		if ftc, ok := r.isRequestForHPA(requestInfo); ok {
 			fmt.Println("##### hpa")
 			return r.hpaHandler.Handler(ctx, ftc)
 		}
-		return forward.NewForwardHandler(*r.APIServer, requestInfo.Path, r.ProxyTransport, resp)
+		return forward.NewForwardHandler(*r.APIServer, requestInfo.Path, r.ProxyTransport, resp, r.restConfig)
 	}
 }
 
@@ -166,8 +173,8 @@ func (r *REST) ConnectMethods() []string {
 	return proxyMethods
 }
 
-// CreateProxyTransport creates the dialer infrastructure to connect to the nodes.
-func CreateProxyTransport() *http.Transport {
+// DefaultProxyTransport creates the dialer infrastructure to connect to the clusters.
+func DefaultProxyTransport() *http.Transport {
 	var proxyDialerFn utilnet.DialFunc
 	// Proxying to pods and services is IP-based... don't expect to be able to verify the hostname
 	proxyTLSClientConfig := &tls.Config{InsecureSkipVerify: true}

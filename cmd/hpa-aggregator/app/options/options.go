@@ -226,6 +226,7 @@ func (o *Options) Config() (*apiserver.Config, error) {
 			FedInformerFactory:       fedInformerFactory,
 			FederatedInformerManager: federatedInformerManager,
 			RequestInfoResolver:      RequestInfoResolver,
+			RestConfig:               restConfig,
 		},
 	}
 	return config, nil

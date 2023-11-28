@@ -33,8 +33,11 @@ import (
 	genericapiserver "k8s.io/apiserver/pkg/server"
 	dynamicclient "k8s.io/client-go/dynamic"
 	kubeclient "k8s.io/client-go/kubernetes"
+	restclient "k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/klog/v2"
+	autoscalinginstall "k8s.io/kubernetes/pkg/apis/autoscaling/install"
+	apiinstall "k8s.io/kubernetes/pkg/apis/core/install"
 	custommetricsv1beta1 "k8s.io/metrics/pkg/apis/custom_metrics/v1beta1"
 	custommetricsv1beta2 "k8s.io/metrics/pkg/apis/custom_metrics/v1beta2"
 	metricsinstall "k8s.io/metrics/pkg/apis/metrics/install"
@@ -67,6 +70,8 @@ var (
 
 func init() {
 	install.Install(Scheme)
+	apiinstall.Install(Scheme)
+	autoscalinginstall.Install(Scheme)
 	metricsinstall.Install(Scheme)
 	custommetricsscheme.AddToScheme(Scheme)
 
@@ -97,6 +102,7 @@ type ExtraConfig struct {
 	KubeClientset    kubeclient.Interface
 	DynamicClientset dynamicclient.Interface
 	FedClientset     fedclient.Interface
+	RestConfig       *restclient.Config
 
 	FederatedInformerManager informermanager.FederatedInformerManager
 	FedInformerFactory       fedinformers.SharedInformerFactory
@@ -158,10 +164,10 @@ func (c completedConfig) New() (*Server, error) {
 		c.ExtraConfig.DynamicClientset,
 		c.ExtraConfig.FedClientset,
 		c.ExtraConfig.FederatedInformerManager,
+		Scheme,
 		c.ExtraConfig.APIServerEndpoint,
 		"",
-		//Codecs,
-		//Scheme,
+		c.ExtraConfig.RestConfig,
 		time.Duration(c.GenericConfig.MinRequestTimeout)*time.Second,
 		klog.Background().WithValues("api", "hpa-aggregation"),
 	)

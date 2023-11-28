@@ -43,8 +43,6 @@ import (
 	"k8s.io/client-go/dynamic"
 	"k8s.io/klog/v2"
 	"k8s.io/kubernetes/pkg/apis/autoscaling"
-	hpaconvertorv1 "k8s.io/kubernetes/pkg/apis/autoscaling/v1"
-	hpaconvertorv2 "k8s.io/kubernetes/pkg/apis/autoscaling/v2"
 
 	fedcorev1a1 "github.com/kubewharf/kubeadmiral/pkg/apis/core/v1alpha1"
 	"github.com/kubewharf/kubeadmiral/pkg/controllers/common"
@@ -123,6 +121,7 @@ type HPAHandler interface {
 type HPAREST struct {
 	client dynamic.Interface
 
+	scheme            *runtime.Scheme
 	tableConvertor    rest.TableConvertor
 	minRequestTimeout time.Duration
 }
@@ -136,10 +135,12 @@ var _ HPAHandler = &HPAREST{}
 
 func NewHPAREST(
 	client dynamic.Interface,
+	scheme *runtime.Scheme,
 	minRequestTimeout time.Duration,
 ) *HPAREST {
 	return &HPAREST{
 		client:            client,
+		scheme:            scheme,
 		tableConvertor:    tableConvertor,
 		minRequestTimeout: minRequestTimeout,
 	}
@@ -226,7 +227,7 @@ func (h *HPAREST) Watch(ctx context.Context, options *metainternalversion.ListOp
 	}
 	gvr := getGVRFromRequestInfo(requestInfo)
 
-	opt, err := convertListOptions(options)
+	opt, err := h.convertListOptions(options)
 	if err != nil {
 		return nil, errors.New("failed to convert ListOptions in the context")
 	}
@@ -247,7 +248,7 @@ func (h *HPAREST) List(ctx context.Context, options *metainternalversion.ListOpt
 	}
 	gvr := getGVRFromRequestInfo(requestInfo)
 
-	opt, err := convertListOptions(options)
+	opt, err := h.convertListOptions(options)
 	if err != nil {
 		return nil, errors.New("failed to convert ListOptions in the context")
 	}
@@ -279,7 +280,7 @@ func (h *HPAREST) ConvertToTable(ctx context.Context, object runtime.Object, tab
 			hpaList := &autoscaling.HorizontalPodAutoscalerList{}
 			hpaList.Items = make([]autoscaling.HorizontalPodAutoscaler, 0, len(t.Items))
 			_ = t.EachListItem(func(object runtime.Object) error {
-				item, err := newHPAforTable(requestInfo.APIGroup, object.(*unstructured.Unstructured))
+				item, err := h.newHPAforTable(requestInfo.APIVersion, object.(*unstructured.Unstructured))
 				if err == nil {
 					hpaList.Items = append(hpaList.Items, *item)
 				}
@@ -287,7 +288,7 @@ func (h *HPAREST) ConvertToTable(ctx context.Context, object runtime.Object, tab
 			})
 			object = hpaList
 		case *unstructured.Unstructured:
-			hpa, err := newHPAforTable(requestInfo.APIGroup, t)
+			hpa, err := h.newHPAforTable(requestInfo.APIVersion, t)
 			if err == nil {
 				object = hpa
 			}
@@ -395,11 +396,10 @@ func getGVRFromRequestInfo(request *genericapirequest.RequestInfo) schema.GroupV
 	}
 }
 
-func convertListOptions(options *metainternalversion.ListOptions) (metav1.ListOptions, error) {
+func (h *HPAREST) convertListOptions(options *metainternalversion.ListOptions) (metav1.ListOptions, error) {
 	opt := metav1.ListOptions{}
 	if options != nil {
-		err := metainternalversion.Convert_internalversion_ListOptions_To_v1_ListOptions(options, &opt, nil)
-		if err != nil {
+		if err := h.scheme.Convert(options, &opt, nil); err != nil {
 			return opt, errors.New("failed to convert ListOptions in the context")
 		}
 	}
@@ -427,8 +427,11 @@ func newLabelSelector(old string) (string, error) {
 	return selector.String(), nil
 }
 
-func newHPAforTable(version string, uns *unstructured.Unstructured) (*autoscaling.HorizontalPodAutoscaler, error) {
-	var hpa *autoscaling.HorizontalPodAutoscaler
+func (h *HPAREST) newHPAforTable(
+	version string,
+	uns *unstructured.Unstructured,
+) (*autoscaling.HorizontalPodAutoscaler, error) {
+	hpa := &autoscaling.HorizontalPodAutoscaler{}
 	switch version {
 	case "v1":
 		hpaV1 := &autoscalingv1.HorizontalPodAutoscaler{}
@@ -436,8 +439,9 @@ func newHPAforTable(version string, uns *unstructured.Unstructured) (*autoscalin
 		if err != nil {
 			return nil, err
 		}
-		err = hpaconvertorv1.Convert_v1_HorizontalPodAutoscaler_To_autoscaling_HorizontalPodAutoscaler(hpaV1, hpa, nil)
-		if err != nil {
+		fmt.Println("### hpa conversion v1:", hpaV1)
+		if err := h.scheme.Convert(hpaV1, hpa, nil); err != nil {
+			fmt.Println("### hpa conversion error:", err)
 			return nil, err
 		}
 	case "v2", "v2beta2", "v2beta1":
@@ -446,8 +450,9 @@ func newHPAforTable(version string, uns *unstructured.Unstructured) (*autoscalin
 		if err != nil {
 			return nil, err
 		}
-		err = hpaconvertorv2.Convert_v2_HorizontalPodAutoscaler_To_autoscaling_HorizontalPodAutoscaler(hpaV2, hpa, nil)
-		if err != nil {
+		fmt.Println("### hpa conversion v2:", hpaV2)
+		if err := h.scheme.Convert(hpaV2, hpa, nil); err != nil {
+			fmt.Println("### hpa conversion error:", err)
 			return nil, err
 		}
 	}
