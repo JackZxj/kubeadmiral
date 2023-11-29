@@ -179,7 +179,7 @@ func (c completedConfig) New() (*Server, error) {
 
 	root := path.Join("/apis", v1alpha1.SchemeGroupVersion.Group, v1alpha1.SchemeGroupVersion.Version, "aggregation")
 
-	if err := metricsaggregator.InstallMetrics(
+	if err := metricsaggregator.InstallResourceMetrics(
 		root,
 		c.GenericConfig,
 		Scheme,

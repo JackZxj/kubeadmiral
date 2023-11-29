@@ -35,8 +35,9 @@ func InstallCustomMetricsAPI(
 		0,
 		logger,
 	)
-	root := path.Join(parentPath, "apis")
+	metricsProvider.RunUntil(genericapiserver.SetupSignalHandler())
 
+	root := path.Join(parentPath, "apis")
 	groupInfo := genericapiserver.NewDefaultAPIGroupInfo(custom_metrics.GroupName, scheme, parameterCodec, codecs)
 	container := s.Handler.GoRestfulContainer
 

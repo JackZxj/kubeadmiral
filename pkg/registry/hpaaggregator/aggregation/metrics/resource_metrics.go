@@ -41,7 +41,7 @@ import (
 	"github.com/kubewharf/kubeadmiral/pkg/registry/hpaaggregator/aggregation/metrics/resource"
 )
 
-func InstallMetrics(
+func InstallResourceMetrics(
 	parentPath string,
 	c genericapiserver.CompletedConfig,
 	scheme *runtime.Scheme,

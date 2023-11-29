@@ -14,6 +14,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
+	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/discovery"
 	"k8s.io/klog/v2"
 	"k8s.io/metrics/pkg/apis/custom_metrics"
@@ -28,30 +29,33 @@ import (
 var (
 	converter = custommetricsclient.NewMetricConverter()
 
-	defaultTimeout = 10 * time.Second
+	defaultUpdateInterval = 60 * time.Second
 )
 
 const providerName = "custom-metrics-provider"
 
 type CustomMetricsProvider struct {
 	federatedInformerManager informermanager.FederatedInformerManager
-	timeout                  time.Duration
+	updateInterval           time.Duration
 	logger                   klog.Logger
+
+	metrics []provider.CustomMetricInfo
+	lock    sync.RWMutex
 }
 
 var _ provider.CustomMetricsProvider = &CustomMetricsProvider{}
 
 func NewCustomMetricsProvider(
 	federatedInformerManager informermanager.FederatedInformerManager,
-	timeout time.Duration,
+	updateInterval time.Duration,
 	logger klog.Logger,
 ) *CustomMetricsProvider {
-	if timeout == 0 {
-		timeout = defaultTimeout
+	if updateInterval == 0 {
+		updateInterval = defaultUpdateInterval
 	}
 	p := &CustomMetricsProvider{
 		federatedInformerManager: federatedInformerManager,
-		timeout:                  timeout,
+		updateInterval:           updateInterval,
 		logger:                   logger.WithValues("provider", providerName),
 	}
 	return p
@@ -64,8 +68,6 @@ func (c *CustomMetricsProvider) newCustomMetricsClient(
 	if !ok {
 		return nil, nil, nil, fmt.Errorf("failed to get rest config for %s", cluster)
 	}
-	config.Timeout = c.timeout
-
 	client, err := discovery.NewDiscoveryClientForConfig(config)
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("failed to get discovery client for %s", cluster)
@@ -241,9 +243,15 @@ func (c *CustomMetricsProvider) GetMetricBySelector(
 }
 
 func (c *CustomMetricsProvider) ListAllMetrics() []provider.CustomMetricInfo {
+	c.lock.RLock()
+	defer c.lock.RUnlock()
+	return c.metrics
+}
+
+func (c *CustomMetricsProvider) listAllMetrics() (metrics []provider.CustomMetricInfo, success bool) {
 	clusters, err := c.federatedInformerManager.GetReadyClusters()
 	if err != nil {
-		return []provider.CustomMetricInfo{}
+		return nil, false
 	}
 
 	var wg sync.WaitGroup
@@ -254,50 +262,65 @@ func (c *CustomMetricsProvider) ListAllMetrics() []provider.CustomMetricInfo {
 		go func(cluster string) {
 			defer wg.Done()
 
-			metricInfos := c.listMetricsInfo(cluster)
+			metricInfos, ok := c.listMetricsInfo(cluster)
+			if !ok {
+				return
+			}
 
 			lock.Lock()
 			defer lock.Unlock()
 			result.Insert(metricInfos...)
+			success = true
 		}(cluster.Name)
 	}
 
 	wg.Wait()
-	infos := result.UnsortedList()
-	sort.Slice(infos, func(i, j int) bool {
-		if infos[i].GroupResource.String() == infos[j].GroupResource.String() {
-			return infos[i].Metric < infos[j].Metric
+	metrics = result.UnsortedList()
+	sort.Slice(metrics, func(i, j int) bool {
+		if metrics[i].GroupResource.String() == metrics[j].GroupResource.String() {
+			return metrics[i].Metric < metrics[j].Metric
 		}
-		return infos[i].GroupResource.String() < infos[j].GroupResource.String()
+		return metrics[i].GroupResource.String() < metrics[j].GroupResource.String()
 	})
-	return infos
+	return metrics, success
 }
 
-func (c *CustomMetricsProvider) listMetricsInfo(cluster string) (resources []provider.CustomMetricInfo) {
+func (c *CustomMetricsProvider) RunUntil(stopChan <-chan struct{}) {
+	go wait.Until(func() {
+		if metrics, ok := c.listAllMetrics(); ok {
+			c.lock.Lock()
+			defer c.lock.Unlock()
+
+			c.metrics = metrics
+		}
+	}, c.updateInterval, stopChan)
+}
+
+func (c *CustomMetricsProvider) listMetricsInfo(cluster string) (metrics []provider.CustomMetricInfo, success bool) {
 	discoveryClient, _, _, err := c.newCustomMetricsClient(cluster)
 	if err != nil {
-		return nil
+		return nil, false
 	}
 
 	resourceList, err := getSupportedCustomMetricsAPIVersion(discoveryClient)
 	if err != nil {
-		return nil
+		return nil, false
 	}
 
-	metricInfos := make([]provider.CustomMetricInfo, 0, len(resourceList.APIResources))
+	metrics = make([]provider.CustomMetricInfo, 0, len(resourceList.APIResources))
 	for _, resource := range resourceList.APIResources {
 		// The resource name consists of GroupResource and Metric
 		info := strings.SplitN(resource.Name, "/", 2)
 		if len(info) != 2 {
 			continue
 		}
-		metricInfos = append(metricInfos, provider.CustomMetricInfo{
+		metrics = append(metrics, provider.CustomMetricInfo{
 			GroupResource: schema.ParseGroupResource(info[0]),
 			Namespaced:    resource.Namespaced,
 			Metric:        info[1],
 		})
 	}
-	return metricInfos
+	return metrics, true
 }
 
 func getSupportedCustomMetricsAPIVersion(
