@@ -241,10 +241,7 @@ func (h *HPAREST) Watch(ctx context.Context, options *metainternalversion.ListOp
 	if err != nil {
 		return nil, errors.New("failed to convert ListOptions in the context")
 	}
-	return client.
-		Resource(gvr).
-		Namespace(requestInfo.Namespace).
-		Watch(ctx, opt)
+	return client.Resource(gvr).Namespace(requestInfo.Namespace).Watch(ctx, opt)
 }
 
 func (h *HPAREST) NewList() runtime.Object {
@@ -443,8 +440,7 @@ func newLabelSelector(old string) (string, error) {
 		selection.Equals,
 		[]string{common.AnnotationValueTrue},
 	)
-	selector.Add(*innerRequirement)
-	return selector.String(), nil
+	return selector.Add(*innerRequirement).String(), nil
 }
 
 func (h *HPAREST) newHPAforTable(
