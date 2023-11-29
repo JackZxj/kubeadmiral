@@ -459,9 +459,7 @@ func (h *HPAREST) newHPAforTable(
 		if err != nil {
 			return nil, err
 		}
-		fmt.Println("### hpa conversion v1:", hpaV1)
 		if err := h.scheme.Convert(hpaV1, hpa, nil); err != nil {
-			fmt.Println("### hpa conversion error:", err)
 			return nil, err
 		}
 	case "v2", "v2beta2", "v2beta1":
@@ -470,9 +468,7 @@ func (h *HPAREST) newHPAforTable(
 		if err != nil {
 			return nil, err
 		}
-		fmt.Println("### hpa conversion v2:", hpaV2)
 		if err := h.scheme.Convert(hpaV2, hpa, nil); err != nil {
-			fmt.Println("### hpa conversion error:", err)
 			return nil, err
 		}
 	}

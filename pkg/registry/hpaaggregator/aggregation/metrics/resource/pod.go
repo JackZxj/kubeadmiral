@@ -117,11 +117,8 @@ func (m *PodMetrics) pods(ctx context.Context, options *metainternalversion.List
 		}
 		partialPods = append(partialPods, partialObj)
 	}
-	fmt.Println("#### partial pods", partialPods)
-	fmt.Println("#### options pods", options)
 
 	if options != nil && options.FieldSelector != nil {
-		fmt.Println("#### options pods!!!!")
 		partialPods = filterPartialObjectMetadata(partialPods, options.FieldSelector)
 	}
 	return partialPods, err
@@ -188,7 +185,6 @@ func (m *PodMetrics) getMetrics(pods ...runtime.Object) ([]metrics.PodMetrics, e
 	if err != nil {
 		return nil, err
 	}
-	fmt.Println("######metrics", ms)
 	for _, m := range ms {
 		metricFreshness.WithLabelValues().Observe(myClock.Since(m.Timestamp.Time).Seconds())
 	}

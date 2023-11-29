@@ -321,7 +321,6 @@ func (p *PodREST) convertAndFilterPodObject(objs []runtime.Object, selector fiel
 		}
 		newPod := &api.Pod{}
 		if err := p.scheme.Convert(obj, newPod, nil); err != nil {
-			fmt.Println("### scheme.Convert", err)
 			continue
 		}
 		newObjs = append(newObjs, *newPod)

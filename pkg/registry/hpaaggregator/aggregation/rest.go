@@ -141,7 +141,6 @@ func (r *REST) NamespaceScoped() bool {
 
 func (r *REST) Connect(ctx context.Context, _ string, _ runtime.Object, resp rest.Responder) (http.Handler, error) {
 	requestInfo, found := genericapirequest.RequestInfoFrom(ctx)
-	fmt.Println("##### requestInfo:", requestInfo, found)
 	if !found {
 		return nil, errors.New("no RequestInfo found in the context")
 	}
@@ -155,7 +154,6 @@ func (r *REST) Connect(ctx context.Context, _ string, _ runtime.Object, resp res
 		return r.podHandler.Handler(ctx)
 	default:
 		if ftc, ok := r.isRequestForHPA(requestInfo); ok {
-			fmt.Println("##### hpa")
 			return r.hpaHandler.Handler(ctx, ftc)
 		}
 		return forward.NewForwardHandler(*r.APIServer, requestInfo.Path, r.ProxyTransport, resp, r.restConfig)
