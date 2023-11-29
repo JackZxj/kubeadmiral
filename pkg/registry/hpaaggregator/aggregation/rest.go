@@ -18,7 +18,6 @@ package aggregation
 
 import (
 	"context"
-	"crypto/tls"
 	"errors"
 	"fmt"
 	"net/http"
@@ -26,7 +25,6 @@ import (
 	"time"
 
 	"k8s.io/apimachinery/pkg/runtime"
-	utilnet "k8s.io/apimachinery/pkg/util/net"
 	genericapirequest "k8s.io/apiserver/pkg/endpoints/request"
 	"k8s.io/apiserver/pkg/registry/rest"
 	"k8s.io/client-go/dynamic"
@@ -35,13 +33,12 @@ import (
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/klog/v2"
 
-	fedcorev1a1 "github.com/kubewharf/kubeadmiral/pkg/apis/core/v1alpha1"
 	"github.com/kubewharf/kubeadmiral/pkg/apis/hpaaggregator/v1alpha1"
 	fedclient "github.com/kubewharf/kubeadmiral/pkg/client/clientset/versioned"
 	"github.com/kubewharf/kubeadmiral/pkg/controllers/common"
-	aggregatedlister2 "github.com/kubewharf/kubeadmiral/pkg/hpaaggregatorapiserver/aggregatedlister"
+	"github.com/kubewharf/kubeadmiral/pkg/hpaaggregatorapiserver/aggregatedlister"
 	"github.com/kubewharf/kubeadmiral/pkg/registry/hpaaggregator/aggregation/forward"
-	resource2 "github.com/kubewharf/kubeadmiral/pkg/registry/hpaaggregator/aggregation/metrics/resource"
+	"github.com/kubewharf/kubeadmiral/pkg/registry/hpaaggregator/aggregation/metrics/resource"
 	"github.com/kubewharf/kubeadmiral/pkg/util/informermanager"
 )
 
@@ -53,15 +50,13 @@ type REST struct {
 
 	federatedInformerManager informermanager.FederatedInformerManager
 
-	APIServer      *url.URL
-	ProxyTransport http.RoundTripper
-	NodeSelector   string
-	MetricsGetter  resource2.MetricsGetter
-	PodLister      cache.GenericLister
-	NodeLister     corev1.NodeLister
+	APIServer     *url.URL
+	NodeSelector  string
+	MetricsGetter resource.MetricsGetter
+	PodLister     cache.GenericLister
+	NodeLister    corev1.NodeLister
 
 	podHandler forward.PodHandler
-	hpaHandler forward.HPAHandler
 
 	logger klog.Logger
 }
@@ -89,20 +84,14 @@ func NewREST(
 		return nil, fmt.Errorf("failed to parse APIServer endpoint %s: %v", endpoint, err)
 	}
 
-	nodeLister := aggregatedlister2.NewNodeLister(federatedInformerManager)
-	podLister := aggregatedlister2.NewPodLister(federatedInformerManager)
-	metricsGetter := resource2.NewMetricsGetter(federatedInformerManager, logger)
+	nodeLister := aggregatedlister.NewNodeLister(federatedInformerManager)
+	podLister := aggregatedlister.NewPodLister(federatedInformerManager)
+	metricsGetter := resource.NewMetricsGetter(federatedInformerManager, logger)
 
 	podHandler := forward.NewPodREST(
 		federatedInformerManager,
 		scheme,
 		podLister,
-		minRequestTimeout,
-	)
-
-	hpaHandler := forward.NewHPAREST(
-		config,
-		scheme,
 		minRequestTimeout,
 	)
 
@@ -113,13 +102,11 @@ func NewREST(
 		scheme:                   scheme,
 		federatedInformerManager: federatedInformerManager,
 		APIServer:                api,
-		ProxyTransport:           DefaultProxyTransport(),
 		NodeSelector:             nodeSelector,
 		MetricsGetter:            metricsGetter,
 		PodLister:                podLister,
 		NodeLister:               nodeLister,
 		podHandler:               podHandler,
-		hpaHandler:               hpaHandler,
 		logger:                   logger,
 	}, nil
 }
@@ -144,8 +131,6 @@ func (r *REST) Connect(ctx context.Context, _ string, _ runtime.Object, resp res
 	if !found {
 		return nil, errors.New("no RequestInfo found in the context")
 	}
-	// /apis/hpaaggregator.kubeadmiral.io/v1alpha1/aggregation/api/v1/pods
-	// /apis/hpaaggregator.kubeadmiral.io/v1alpha1/aggregation/apis/storage.k8s.io/v1/storageclasses
 
 	switch {
 	case isSelf(requestInfo):
@@ -153,10 +138,7 @@ func (r *REST) Connect(ctx context.Context, _ string, _ runtime.Object, resp res
 	case isRequestForPod(requestInfo):
 		return r.podHandler.Handler(ctx)
 	default:
-		if ftc, ok := r.isRequestForHPA(requestInfo); ok {
-			return r.hpaHandler.Handler(ctx, ftc)
-		}
-		return forward.NewForwardHandler(*r.APIServer, requestInfo.Path, r.ProxyTransport, resp, r.restConfig)
+		return forward.NewForwardHandler(*r.APIServer, requestInfo, resp, r.restConfig, r.isRequestForHPA(requestInfo))
 	}
 }
 
@@ -171,18 +153,6 @@ func (r *REST) ConnectMethods() []string {
 	return proxyMethods
 }
 
-// DefaultProxyTransport creates the dialer infrastructure to connect to the clusters.
-func DefaultProxyTransport() *http.Transport {
-	var proxyDialerFn utilnet.DialFunc
-	// Proxying to pods and services is IP-based... don't expect to be able to verify the hostname
-	proxyTLSClientConfig := &tls.Config{InsecureSkipVerify: true}
-	proxyTransport := utilnet.SetTransportDefaults(&http.Transport{
-		DialContext:     proxyDialerFn,
-		TLSClientConfig: proxyTLSClientConfig,
-	})
-	return proxyTransport
-}
-
 func isSelf(request *genericapirequest.RequestInfo) bool {
 	return request.APIGroup == v1alpha1.SchemeGroupVersion.Group
 }
@@ -191,19 +161,15 @@ func isRequestForPod(request *genericapirequest.RequestInfo) bool {
 	return request.APIGroup == "" && request.APIVersion == "v1" && request.Resource == "pods"
 }
 
-func isRequestForNode(request *genericapirequest.RequestInfo) bool {
-	return request.APIGroup == "" && request.APIVersion == "v1" && request.Resource == "nodes"
-}
-
-func (r *REST) isRequestForHPA(request *genericapirequest.RequestInfo) (*fedcorev1a1.FederatedTypeConfig, bool) {
+func (r *REST) isRequestForHPA(request *genericapirequest.RequestInfo) bool {
 	if request.Resource == "" || request.APIGroup == "" {
-		return nil, false
+		return false
 	}
 	ftc, _ := r.federatedInformerManager.
 		GetFederatedTypeConfigLister().
 		Get(fmt.Sprintf("%s.%s", request.Resource, request.APIGroup))
 	if ftc != nil && ftc.GetAnnotations()[common.HPAScaleTargetRefPath] != "" {
-		return ftc, true
+		return true
 	}
-	return nil, false
+	return false
 }

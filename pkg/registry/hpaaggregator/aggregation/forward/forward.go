@@ -17,11 +17,13 @@ limitations under the License.
 package forward
 
 import (
+	"crypto/tls"
 	"errors"
 	"net/http"
 	"net/url"
 
 	authenticationv1 "k8s.io/api/authentication/v1"
+	utilnet "k8s.io/apimachinery/pkg/util/net"
 	"k8s.io/apimachinery/pkg/util/proxy"
 	"k8s.io/apiserver/pkg/authentication/user"
 	"k8s.io/apiserver/pkg/endpoints/handlers/responsewriters"
@@ -32,12 +34,14 @@ import (
 	"github.com/kubewharf/kubeadmiral/pkg/hpaaggregatorapiserver/serverconfig"
 )
 
+var transport = defaultProxyTransport()
+
 func NewForwardHandler(
 	location url.URL,
-	forwardPath string,
-	transport http.RoundTripper,
+	info *request.RequestInfo,
 	r rest.Responder,
 	adminConfig *restclient.Config,
+	isHPA bool,
 ) (http.Handler, error) {
 	return http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
 		if !serverconfig.RecoverImpersonation(req) {
@@ -54,6 +58,7 @@ func NewForwardHandler(
 			}
 		}
 		var err error
+		var transport http.RoundTripper = transport
 		if !serverconfig.RecoverAuthentication(req) {
 			// If the request without an auth token (eg: tls auth),
 			// we use admin config and ImpersonateUser to forward
@@ -64,8 +69,15 @@ func NewForwardHandler(
 			}
 		}
 
-		location.Path = forwardPath
-		location.RawQuery = req.URL.RawQuery
+		location.Path = info.Path
+		if isHPA {
+			switch info.Verb {
+			case "get", "list", "watch":
+				q := req.URL.Query()
+				q.Add("labelSelector", "kubeadmiral.io/centralized-hpa-enabled=true")
+				req.URL.RawQuery = q.Encode()
+			}
+		}
 
 		handler := proxy.NewUpgradeAwareHandler(
 			&location,
@@ -79,4 +91,16 @@ func NewForwardHandler(
 
 		handler.ServeHTTP(rw, req)
 	}), nil
+}
+
+// defaultProxyTransport creates the dialer infrastructure to connect to the clusters.
+func defaultProxyTransport() *http.Transport {
+	var proxyDialerFn utilnet.DialFunc
+	// Proxying to pods and services is IP-based... don't expect to be able to verify the hostname
+	proxyTLSClientConfig := &tls.Config{InsecureSkipVerify: true}
+	proxyTransport := utilnet.SetTransportDefaults(&http.Transport{
+		DialContext:     proxyDialerFn,
+		TLSClientConfig: proxyTLSClientConfig,
+	})
+	return proxyTransport
 }
