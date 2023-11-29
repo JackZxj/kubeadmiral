@@ -298,7 +298,6 @@ func (p *PodREST) Watch(ctx context.Context, options *metainternalversion.ListOp
 						return
 					}
 					if pod, ok := event.Object.(*corev1.Pod); ok {
-						informermanager.PrunePod(pod)
 						aggregatedlister.MakePodUnique(pod, cluster)
 						newPod := &api.Pod{}
 						if err := p.scheme.Convert(pod, newPod, nil); err != nil {

@@ -275,7 +275,7 @@ func (m *federatedInformerManager) processCluster(
 		}
 
 		factory := informers.NewSharedInformerFactory(clusterKubeClient, 0)
-		addPodInformer(ctx, factory, clusterKubeClient, m.podListerSemaphore, true)
+		addPodInformer(ctx, factory, clusterKubeClient, m.podListerSemaphore, false)
 		factory.Core().V1().Nodes().Informer()
 
 		klog.FromContext(ctx).V(2).Info("Starting new InformerManager for FederatedCluster")
