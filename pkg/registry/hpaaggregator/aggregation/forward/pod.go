@@ -266,6 +266,7 @@ func (p *PodREST) Watch(ctx context.Context, options *metainternalversion.ListOp
 		return nil, fmt.Errorf("failed watching pods: %w", err)
 	}
 
+	// TODO: support cluster addition and deletion during the watch
 	watchClusters := sets.Set[string]{}
 	proxyCh := make(chan watch.Event)
 	proxyWatcher := watch.NewProxyWatcher(proxyCh)
@@ -299,6 +300,11 @@ func (p *PodREST) Watch(ctx context.Context, options *metainternalversion.ListOp
 					if pod, ok := event.Object.(*corev1.Pod); ok {
 						informermanager.PrunePod(pod)
 						aggregatedlister.MakePodUnique(pod, cluster)
+						newPod := &api.Pod{}
+						if err := p.scheme.Convert(pod, newPod, nil); err != nil {
+							continue
+						}
+						event.Object = newPod
 					}
 					proxyCh <- event
 				}
