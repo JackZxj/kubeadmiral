@@ -117,7 +117,7 @@ const (
 
 	LatestReplicasetDigestsAnnotation = DefaultPrefix + "latest-replicaset-digests"
 
-	HPAScaleTargetRefPath = "hpa.kubeadmiral.io/scale-target-ref-path"
+	HPAScaleTargetRefPath = DefaultPrefix + "scale-target-ref-path"
 )
 
 // The following consts are labels key-values used by Kubeadmiral controllers.
