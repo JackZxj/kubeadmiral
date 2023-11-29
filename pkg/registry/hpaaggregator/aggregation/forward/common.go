@@ -4,16 +4,15 @@ import (
 	"context"
 	"errors"
 
-	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/runtime/serializer"
-	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/apiserver/pkg/authentication/user"
 	genericapirequest "k8s.io/apiserver/pkg/endpoints/request"
 	"k8s.io/client-go/dynamic"
 	restclient "k8s.io/client-go/rest"
+	apiinstall "k8s.io/kubernetes/pkg/apis/core/install"
 	"k8s.io/kubernetes/pkg/printers"
 	printersinternal "k8s.io/kubernetes/pkg/printers/internalversion"
 	printerstorage "k8s.io/kubernetes/pkg/printers/storage"
@@ -38,15 +37,9 @@ var (
 	}
 )
 
-var localSchemeBuilder = runtime.SchemeBuilder{
-	corev1.AddToScheme,
-}
-
-var addToScheme = localSchemeBuilder.AddToScheme
-
 func init() {
 	metav1.AddToGroupVersion(scheme, schema.GroupVersion{Version: "v1"})
-	utilruntime.Must(addToScheme(scheme))
+	apiinstall.Install(scheme)
 
 	scheme.AddUnversionedTypes(unversionedVersion, unversionedTypes...)
 }
