@@ -53,7 +53,6 @@ import (
 	"github.com/kubewharf/kubeadmiral/pkg/registry"
 	"github.com/kubewharf/kubeadmiral/pkg/registry/hpaaggregator/aggregation"
 	metricsaggregator "github.com/kubewharf/kubeadmiral/pkg/registry/hpaaggregator/aggregation/metrics"
-	"github.com/kubewharf/kubeadmiral/pkg/registry/hpaaggregator/externalmetricadaptor"
 	"github.com/kubewharf/kubeadmiral/pkg/util/informermanager"
 )
 
@@ -158,7 +157,7 @@ func (c completedConfig) New() (*Server, error) {
 	apiGroupInfo := genericapiserver.NewDefaultAPIGroupInfo(hpaaggregatorapi.GroupName, Scheme, ParameterCodec, Codecs)
 
 	v1alpha1storage := map[string]rest.Storage{}
-	v1alpha1storage["externalmetricadaptors"] = registry.RESTInPeace(externalmetricadaptor.NewREST(Scheme, c.GenericConfig.RESTOptionsGetter))
+	//v1alpha1storage["externalmetricadaptors"] = registry.RESTInPeace(externalmetricadaptor.NewREST(Scheme, c.GenericConfig.RESTOptionsGetter))
 	aggregationAPI, err := aggregation.NewREST(
 		c.ExtraConfig.DynamicClientset,
 		c.ExtraConfig.FedClientset,
