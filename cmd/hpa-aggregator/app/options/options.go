@@ -94,6 +94,8 @@ func NewOptions() *Options {
 		hpaaggregatorv1alpha1.SchemeGroupVersion,
 		schema.GroupKind{Group: hpaaggregator.GroupName},
 	)
+	// we don't use it now
+	o.RecommendedOptions.Etcd.SkipHealthEndpoints = true
 	return o
 }
 
