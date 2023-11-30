@@ -107,10 +107,10 @@ func (o *Options) AddFlags(flags *pflag.FlagSet) {
 
 	flags.BoolVar(&o.EnableProfiling, "enable-profiling", false, "Enable profiling for the controller manager.")
 
-	flags.Int64Var(&o.MaxPodListers, "max-pod-listers", 0, "The maximum number of concurrent pod listing requests to member clusters. "+
-		"A non-positive number means unlimited, but may increase the instantaneous memory usage.")
-	flags.BoolVar(&o.EnablePodPruning, "enable-pod-pruning", false, "Enable pod pruning for pod informer. "+
-		"Enabling this can reduce memory usage of the pod informer, but will disable pod propagation.")
+	//flags.Int64Var(&o.MaxPodListers, "max-pod-listers", 0, "The maximum number of concurrent pod listing requests to member clusters. "+
+	//	"A non-positive number means unlimited, but may increase the instantaneous memory usage.")
+	//flags.BoolVar(&o.EnablePodPruning, "enable-pod-pruning", false, "Enable pod pruning for pod informer. "+
+	//	"Enabling this can reduce memory usage of the pod informer, but will disable pod propagation.")
 
 	flags.BoolVar(&o.PrometheusMetrics, "export-prometheus", true, "Whether to expose metrics through a prometheus endpoint")
 	flags.StringVar(&o.PrometheusAddr, "prometheus-addr", "", "Prometheus collector address")
@@ -146,14 +146,14 @@ func (o *Options) Config() (*apiserver.Config, error) {
 		return nil, fmt.Errorf("error creating self-signed certificates: %v", err)
 	}
 
-	o.RecommendedOptions.Etcd.StorageConfig.Paging = true
+	// we don't authorize api path, 因为我们会使用用户的身份访问，由核心APIServer可以决定这些请求是否可以被接受
+	o.RecommendedOptions.Authorization.WithAlwaysAllowPaths("/api", "/api/*", "/apis", "/apis/*")
 
 	o.RecommendedOptions.ExtraAdmissionInitializers = func(c *genericapiserver.RecommendedConfig) ([]admission.PluginInitializer, error) {
 		return []admission.PluginInitializer{}, nil
 	}
 
 	serverConfig := genericapiserver.NewRecommendedConfig(apiserver.Codecs)
-	serverConfig.Config.BuildHandlerChainFunc = serverconfig.CopyAuthHandlerChain
 
 	serverConfig.OpenAPIConfig = genericapiserver.DefaultOpenAPIConfig(
 		fedopenapi.GetOpenAPIDefinitions,
