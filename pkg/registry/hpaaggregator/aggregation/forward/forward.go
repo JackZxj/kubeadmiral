@@ -18,6 +18,7 @@ package forward
 
 import (
 	"errors"
+	"fmt"
 	"net/http"
 	"net/url"
 
@@ -29,6 +30,11 @@ import (
 	"k8s.io/apiserver/pkg/endpoints/request"
 	"k8s.io/apiserver/pkg/registry/rest"
 	restclient "k8s.io/client-go/rest"
+)
+
+const (
+	labelSelectorQueryKey   = "labelSelector"
+	labelSelectorQueryValue = "kubeadmiral.io/centralized-hpa-enabled=true"
 )
 
 func NewForwardHandler(
@@ -60,10 +66,16 @@ func NewForwardHandler(
 
 		if isHPA {
 			switch info.Verb {
-			case "get", "list", "watch":
+			case "get", "list", "watch", "deletecollection":
 				q := req.URL.Query()
-				q.Add("labelSelector", "kubeadmiral.io/centralized-hpa-enabled=true")
+				if selector := q.Get(labelSelectorQueryKey); selector == "" {
+					q.Set(labelSelectorQueryKey, labelSelectorQueryValue)
+				} else {
+					selector = fmt.Sprintf("%s,%s", selector, labelSelectorQueryValue)
+					q.Set(labelSelectorQueryKey, selector)
+				}
 				req.URL.RawQuery = q.Encode()
+				// TODO: do we need to filter out the create/update/patch/delete requests?
 			}
 		}
 		location.Path = info.Path
