@@ -53,7 +53,7 @@ func (r *RequestInfoResolver) NewRequestInfo(req *http.Request) (*apirequest.Req
 	if err == nil && !r.inBlacklist(req.URL.Path) && info.Name == "" {
 		// The name is required but not used in our rest.Connecter, so we have to set a default value
 		// into it to avoid "name must be provided" error.
-		info.Name = "this-name-can-not-be-used"
+		info.Name = "this-is-a-fake-name-that-can-not-be-used"
 	}
 
 	return info, err
