@@ -25,8 +25,6 @@ import (
 	"strings"
 	"time"
 
-	authenticationv1 "k8s.io/api/authentication/v1"
-	"k8s.io/apimachinery/pkg/util/httpstream"
 	utilnet "k8s.io/apimachinery/pkg/util/net"
 	"k8s.io/apimachinery/pkg/util/proxy"
 	"k8s.io/apiserver/pkg/audit"
@@ -35,7 +33,6 @@ import (
 	"k8s.io/apiserver/pkg/endpoints/request"
 	"k8s.io/apiserver/pkg/registry/rest"
 	restclient "k8s.io/client-go/rest"
-	"k8s.io/client-go/transport"
 )
 
 const (
@@ -61,7 +58,6 @@ const (
 )
 
 func NewForwardHandler(
-	location url.URL,
 	info *request.RequestInfo,
 	r rest.Responder,
 	adminConfig *restclient.Config,
@@ -73,10 +69,14 @@ func NewForwardHandler(
 			responsewriters.InternalError(rw, req, errors.New("no user found for request"))
 			return
 		}
-		req.Header.Set(authenticationv1.ImpersonateUserHeader, requester.GetName())
+
+		adminConfig := restclient.CopyConfig(adminConfig)
+		//req.Header.Set(authenticationv1.ImpersonateUserHeader, requester.GetName())
+		adminConfig.Impersonate.UserName = requester.GetName()
 		for _, group := range requester.GetGroups() {
 			if group != user.AllAuthenticated && group != user.AllUnauthenticated {
-				req.Header.Add(authenticationv1.ImpersonateGroupHeader, group)
+				//req.Header.Add(authenticationv1.ImpersonateGroupHeader, group)
+				adminConfig.Impersonate.Groups = append(adminConfig.Impersonate.Groups, group)
 			}
 		}
 
@@ -101,43 +101,43 @@ func NewForwardHandler(
 				// TODO: do we need to filter out the create/update/patch/delete requests?
 			}
 		}
-		location.Scheme = "https"
-		location.Path = info.Path
-		location.RawQuery = req.URL.Query().Encode()
 
-		newReq, cancelFn := NewRequestForProxy(&location, req, info)
+		location, err := url.Parse(adminConfig.Host)
+		if err != nil {
+			responsewriters.InternalError(rw, req, errors.New("failed to get location"))
+			return
+		}
+		location.Path = req.URL.Path
+		location.RawQuery = req.URL.RawQuery
+
+		newReq, cancelFn := NewRequestForProxy(location, req, info)
 		defer cancelFn()
 
-		upgrade := httpstream.IsUpgradeRequest(req)
-
-		proxyRoundTripper = transport.NewAuthProxyRoundTripper(
-			requester.GetName(), requester.GetGroups(), requester.GetExtra(), proxyRoundTripper)
-
-		// If we are upgrading, then the upgrade path tries to use this request with the TLS config we provide, but it does
-		// NOT use the proxyRoundTripper.  It's a direct dial that bypasses the proxyRoundTripper.  This means that we have to
-		// attach the "correct" user headers to the request ahead of time.
-		if upgrade {
-			transport.SetAuthProxyHeaders(newReq, requester.GetName(), requester.GetGroups(), requester.GetExtra())
-		}
-
 		handler := proxy.NewUpgradeAwareHandler(
-			&location, proxyRoundTripper, true, upgrade, proxy.NewErrorResponder(r))
+			location, proxyRoundTripper, true, false, proxy.NewErrorResponder(r))
+		handler.UseLocationHost = true
 
 		handler.ServeHTTP(rw, newReq)
 	}), nil
 }
 
-// NewRequestForProxy returns a shallow copy of the original request with a context that may include a timeout for discovery requests
-func NewRequestForProxy(location *url.URL, req *http.Request, info *request.RequestInfo) (*http.Request, context.CancelFunc) {
+// NewRequestForProxy returns a shallow copy of the original request with a context
+// that may include a timeout for discovery requests
+func NewRequestForProxy(
+	location *url.URL,
+	req *http.Request,
+	info *request.RequestInfo,
+) (*http.Request, context.CancelFunc) {
 	newCtx := req.Context()
 	cancelFn := func() {}
 
-	// trim leading and trailing slashes. Then "/apis/group/version" requests are for discovery, so if we have exactly three
-	// segments that we are going to proxy, we have a discovery request.
-	if !info.IsResourceRequest && len(strings.Split(strings.Trim(info.Path, "/"), "/")) == 3 {
-		// discovery requests are used by kubectl and others to determine which resources a server has.  This is a cheap call that
-		// should be fast for every aggregated apiserver.  Latency for aggregation is expected to be low (as for all extensions)
-		// so forcing a short timeout here helps responsiveness of all clients.
+	// trim leading and trailing slashes. Then "/apis/group/version" and "/api/version" requests are for discovery,
+	// so if we have three or fewer segments that we are going to proxy, we have a discovery request.
+	if !info.IsResourceRequest && len(strings.Split(strings.Trim(info.Path, "/"), "/")) <= 3 {
+		// discovery requests are used by kubectl and others to determine which resources a server has.
+		// This is a cheap call that should be fast for every aggregated apiserver.  Latency for aggregation
+		// is expected to be low (as for all extensions) so forcing a short timeout here helps
+		// responsiveness of all clients.
 		newCtx, cancelFn = context.WithTimeout(newCtx, aggregatedDiscoveryTimeout)
 	}
 

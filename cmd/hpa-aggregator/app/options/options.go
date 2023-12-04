@@ -30,10 +30,12 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	utilerrors "k8s.io/apimachinery/pkg/util/errors"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apiserver/pkg/admission"
 	"k8s.io/apiserver/pkg/endpoints/openapi"
 	"k8s.io/apiserver/pkg/features"
 	genericapiserver "k8s.io/apiserver/pkg/server"
+	"k8s.io/apiserver/pkg/server/filters"
 	"k8s.io/apiserver/pkg/server/healthz"
 	genericoptions "k8s.io/apiserver/pkg/server/options"
 	utilfeature "k8s.io/apiserver/pkg/util/feature"
@@ -53,7 +55,6 @@ import (
 	fedopenapi "github.com/kubewharf/kubeadmiral/pkg/client/openapi"
 	"github.com/kubewharf/kubeadmiral/pkg/controllers/common"
 	apiserver "github.com/kubewharf/kubeadmiral/pkg/hpaaggregatorapiserver"
-	"github.com/kubewharf/kubeadmiral/pkg/hpaaggregatorapiserver/serverconfig"
 	clusterutil "github.com/kubewharf/kubeadmiral/pkg/util/cluster"
 	"github.com/kubewharf/kubeadmiral/pkg/util/informermanager"
 )
@@ -81,6 +82,10 @@ type Options struct {
 	PrometheusMetrics bool
 	PrometheusAddr    string
 	PrometheusPort    uint16
+
+	DisableResourceMetrics bool
+	DisableCustomMetrics   bool
+	DiscoveryInterval      time.Duration
 }
 
 func NewOptions() *Options {
@@ -115,6 +120,10 @@ func (o *Options) AddFlags(flags *pflag.FlagSet) {
 	flags.BoolVar(&o.PrometheusMetrics, "export-prometheus", true, "Whether to expose metrics through a prometheus endpoint")
 	flags.StringVar(&o.PrometheusAddr, "prometheus-addr", "", "Prometheus collector address")
 	flags.Uint16Var(&o.PrometheusPort, "prometheus-port", 9090, "Prometheus collector port")
+
+	flags.BoolVar(&o.DisableResourceMetrics, "disable-resource-metrics", false, "Whether to disable resource metrics provider")
+	flags.BoolVar(&o.DisableCustomMetrics, "disable-custom-metrics", false, "Whether to disable custom metrics provider")
+	flags.DurationVar(&o.DiscoveryInterval, "discovery-interval", o.DiscoveryInterval, "Interval at which to refresh API discovery information")
 
 	utilfeature.DefaultMutableFeatureGate.AddFlag(flags)
 
@@ -179,8 +188,12 @@ func (o *Options) Config() (*apiserver.Config, error) {
 		return nil, err
 	}
 
-	RequestInfoResolver := serverconfig.NewRequestInfoResolver(&serverConfig.Config)
-	serverConfig.RequestInfoResolver = RequestInfoResolver
+	//RequestInfoResolver := serverconfig.NewRequestInfoResolver(&serverConfig.Config)
+	//serverConfig.RequestInfoResolver = RequestInfoResolver
+	serverConfig.LongRunningFunc = filters.BasicLongRunningRequestCheck(
+		sets.NewString("watch", "proxy"),
+		sets.NewString("attach", "exec", "proxy", "log", "portforward"),
+	)
 
 	restConfig, err := clientcmd.BuildConfigFromFlags(o.Master, o.RecommendedOptions.CoreAPI.CoreAPIKubeconfigPath)
 	if err != nil {
@@ -239,8 +252,11 @@ func (o *Options) Config() (*apiserver.Config, error) {
 			FedClientset:             fedClientset,
 			FedInformerFactory:       fedInformerFactory,
 			FederatedInformerManager: federatedInformerManager,
-			RequestInfoResolver:      RequestInfoResolver,
-			RestConfig:               restConfig,
+			//RequestInfoResolver:      RequestInfoResolver,
+			RestConfig:             restConfig,
+			DisableResourceMetrics: o.DisableResourceMetrics,
+			DisableCustomMetrics:   o.DisableCustomMetrics,
+			DiscoveryInterval:      o.DiscoveryInterval,
 		},
 	}
 	return config, nil

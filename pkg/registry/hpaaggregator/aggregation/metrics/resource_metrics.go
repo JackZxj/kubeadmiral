@@ -37,6 +37,7 @@ import (
 	corev1 "k8s.io/client-go/listers/core/v1"
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/metrics/pkg/apis/metrics"
+	metricsv1beta1 "k8s.io/metrics/pkg/apis/metrics/v1beta1"
 
 	"github.com/kubewharf/kubeadmiral/pkg/registry/hpaaggregator/aggregation/metrics/resource"
 )
@@ -135,7 +136,7 @@ func resourceAPI(
 
 	return &genericapi.APIGroupVersion{
 		Storage:      storage,
-		Root:         rootPath,
+		Root:         genericapiserver.APIGroupPrefix,
 		GroupVersion: groupVersion,
 
 		ParameterCodec:        groupInfo.ParameterCodec,
@@ -154,4 +155,27 @@ func resourceAPI(
 		MinRequestTimeout: time.Duration(c.MinRequestTimeout) * time.Second,
 		Authorizer:        c.Authorization.Authorizer,
 	}, destroyFn
+}
+
+// BuildResourceMetrics constructs APIGroupInfo the metrics.k8s.io API group using the given getters.
+func BuildResourceMetrics(
+	scheme *runtime.Scheme,
+	parameterCodec runtime.ParameterCodec,
+	codecs serializer.CodecFactory,
+	m resource.MetricsGetter,
+	podMetadataLister cache.GenericLister,
+	nodeLister corev1.NodeLister,
+	nodeSelector []labels.Requirement,
+) genericapiserver.APIGroupInfo {
+	node := resource.NewNodeMetrics(metrics.Resource("nodemetrics"), m, nodeLister, nodeSelector)
+	pod := resource.NewPodMetrics(metrics.Resource("podmetrics"), m, podMetadataLister)
+
+	apiGroupInfo := genericapiserver.NewDefaultAPIGroupInfo(metrics.GroupName, scheme, parameterCodec, codecs)
+	metricsServerResources := map[string]rest.Storage{
+		"nodes": node,
+		"pods":  pod,
+	}
+	apiGroupInfo.VersionedResourcesStorageMap[metricsv1beta1.SchemeGroupVersion.Version] = metricsServerResources
+
+	return apiGroupInfo
 }

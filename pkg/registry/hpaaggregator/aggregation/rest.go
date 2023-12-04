@@ -21,42 +21,40 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"net/url"
+	"path"
 	"time"
 
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/util/sets"
 	genericapirequest "k8s.io/apiserver/pkg/endpoints/request"
 	"k8s.io/apiserver/pkg/registry/rest"
-	"k8s.io/client-go/dynamic"
-	corev1 "k8s.io/client-go/listers/core/v1"
 	restclient "k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/klog/v2"
+	"k8s.io/metrics/pkg/apis/custom_metrics"
+	"k8s.io/metrics/pkg/apis/metrics"
 
 	"github.com/kubewharf/kubeadmiral/pkg/apis/hpaaggregator/v1alpha1"
-	fedclient "github.com/kubewharf/kubeadmiral/pkg/client/clientset/versioned"
 	"github.com/kubewharf/kubeadmiral/pkg/controllers/common"
-	"github.com/kubewharf/kubeadmiral/pkg/hpaaggregatorapiserver/aggregatedlister"
 	"github.com/kubewharf/kubeadmiral/pkg/registry/hpaaggregator/aggregation/forward"
-	"github.com/kubewharf/kubeadmiral/pkg/registry/hpaaggregator/aggregation/metrics/resource"
 	"github.com/kubewharf/kubeadmiral/pkg/util/informermanager"
 )
 
 type REST struct {
-	client     dynamic.Interface
-	fedClient  fedclient.Interface
 	restConfig *restclient.Config
-	scheme     *runtime.Scheme
 
 	federatedInformerManager informermanager.FederatedInformerManager
 
-	APIServer     *url.URL
-	NodeSelector  string
-	MetricsGetter resource.MetricsGetter
-	PodLister     cache.GenericLister
-	NodeLister    corev1.NodeLister
+	resolver genericapirequest.RequestInfoResolver
 
+	podLister  cache.GenericLister
 	podHandler forward.PodHandler
+
+	disableResourceMetrics bool
+	disableCustomMetrics   bool
+	redirector             http.Handler
 
 	logger klog.Logger
 }
@@ -69,44 +67,35 @@ var proxyMethods = []string{"GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OP
 
 // NewREST returns a RESTStorage object that will work against API services.
 func NewREST(
-	kubeClient dynamic.Interface,
-	fedClient fedclient.Interface,
 	federatedInformerManager informermanager.FederatedInformerManager,
-	scheme *runtime.Scheme,
-	endpoint string,
-	nodeSelector string,
+	podLister cache.GenericLister,
 	config *restclient.Config,
 	minRequestTimeout time.Duration,
+	disableResourceMetrics bool,
+	disableCustomMetrics bool,
+	s http.Handler,
 	logger klog.Logger,
 ) (*REST, error) {
-	api, err := url.Parse(endpoint)
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse APIServer endpoint %s: %v", endpoint, err)
-	}
-
-	nodeLister := aggregatedlister.NewNodeLister(federatedInformerManager)
-	podLister := aggregatedlister.NewPodLister(federatedInformerManager)
-	metricsGetter := resource.NewMetricsGetter(federatedInformerManager, logger)
-
 	podHandler := forward.NewPodREST(
 		federatedInformerManager,
-		scheme,
 		podLister,
 		minRequestTimeout,
 	)
 
+	resolver := &genericapirequest.RequestInfoFactory{
+		APIPrefixes:          sets.NewString("apis", "api"),
+		GrouplessAPIPrefixes: sets.NewString("api"),
+	}
+
 	return &REST{
-		client:                   kubeClient,
-		fedClient:                fedClient,
 		restConfig:               config,
-		scheme:                   scheme,
 		federatedInformerManager: federatedInformerManager,
-		APIServer:                api,
-		NodeSelector:             nodeSelector,
-		MetricsGetter:            metricsGetter,
-		PodLister:                podLister,
-		NodeLister:               nodeLister,
+		resolver:                 resolver,
+		podLister:                podLister,
 		podHandler:               podHandler,
+		disableResourceMetrics:   disableResourceMetrics,
+		disableCustomMetrics:     disableCustomMetrics,
+		redirector:               s,
 		logger:                   logger,
 	}, nil
 }
@@ -127,19 +116,63 @@ func (r *REST) NamespaceScoped() bool {
 }
 
 func (r *REST) Connect(ctx context.Context, _ string, _ runtime.Object, resp rest.Responder) (http.Handler, error) {
-	requestInfo, found := genericapirequest.RequestInfoFrom(ctx)
-	if !found {
-		return nil, errors.New("no RequestInfo found in the context")
-	}
+	return http.HandlerFunc(
+		func(rw http.ResponseWriter, req *http.Request) {
+			curInfo, found := genericapirequest.RequestInfoFrom(ctx)
+			if !found {
+				resp.Error(errors.New("no RequestInfo found in the context"))
+				return
+			}
+			// If the request is "/apis/hpaaggregator.kubeadmiral.io/v1alpha1/aggregations/hpa/proxy/api/v1/pods",
+			// the curInfo.Parts are [aggregations, hpa, proxy, api, v1, pods]. This proxy could only work when
+			// the curInfo.Parts is not empty, so that we can get the target path from it.
+			if len(curInfo.Parts) <= 2 || curInfo.Parts[2] != "proxy" {
+				resp.Error(apierrors.NewGenericServerResponse(
+					http.StatusNotFound,
+					curInfo.Verb,
+					schema.GroupResource{},
+					"",
+					"",
+					0,
+					false,
+				))
+				return
+			}
 
-	switch {
-	case isSelf(requestInfo):
-		return nil, errors.New("can't proxy to self")
-	case isRequestForPod(requestInfo):
-		return r.podHandler.Handler(ctx)
-	default:
-		return forward.NewForwardHandler(*r.APIServer, requestInfo, resp, r.restConfig, r.isRequestForHPA(requestInfo))
-	}
+			reqCopy := req.Clone(ctx)
+			reqCopy.URL.Path = "/" + path.Join(curInfo.Parts[3:]...)
+			proxyInfo, err := r.resolver.NewRequestInfo(reqCopy)
+			if err != nil {
+				resp.Error(errors.New("failed to renew RequestInfo for proxy"))
+				return
+			}
+			ctx = genericapirequest.WithRequestInfo(ctx, proxyInfo)
+			req = reqCopy.Clone(ctx)
+
+			var proxyHandler http.Handler
+			switch {
+			case isSelf(proxyInfo):
+				err = errors.New("can't proxy to self")
+			case isRequestForPod(proxyInfo):
+				proxyHandler, err = r.podHandler.Handler(proxyInfo)
+			case !r.disableResourceMetrics && isRequestForResourceMetrics(proxyInfo) ||
+				!r.disableCustomMetrics && isRequestForCustomMetrics(proxyInfo):
+				// if we have provided an API for ResourceMetrics or CustomMetrics, we can serve it directly
+				// without a proxy. And we have to forget what we have done before, so we use a new context.
+				req = req.Clone(context.Background())
+				proxyHandler = r.redirector
+			default:
+				proxyHandler, err = forward.NewForwardHandler(proxyInfo, resp, r.restConfig, r.isRequestForHPA(proxyInfo))
+			}
+
+			if err != nil {
+				resp.Error(err)
+				return
+			}
+			proxyHandler.ServeHTTP(rw, req)
+		},
+	), nil
+
 }
 
 // NewConnectOptions returns an empty options object that will be used to pass
@@ -149,6 +182,7 @@ func (r *REST) NewConnectOptions() (runtime.Object, bool, string) {
 	return nil, true, ""
 }
 
+// ConnectMethods returns the list of HTTP methods handled by Connect
 func (r *REST) ConnectMethods() []string {
 	return proxyMethods
 }
@@ -172,4 +206,12 @@ func (r *REST) isRequestForHPA(request *genericapirequest.RequestInfo) bool {
 		return true
 	}
 	return false
+}
+
+func isRequestForResourceMetrics(request *genericapirequest.RequestInfo) bool {
+	return request.APIGroup == metrics.GroupName
+}
+
+func isRequestForCustomMetrics(request *genericapirequest.RequestInfo) bool {
+	return request.APIGroup == custom_metrics.GroupName
 }

@@ -22,7 +22,7 @@ import (
 
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 
-// Aggregation define a flag for hpa aggregator that do not have actual resources.
+// Aggregation defines an endpoint for hpa aggregator that do not have actual resources.
 type Aggregation struct {
 	metav1.TypeMeta `json:",inline"`
 }

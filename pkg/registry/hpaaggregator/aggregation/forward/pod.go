@@ -18,7 +18,6 @@ package forward
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -48,7 +47,7 @@ import (
 )
 
 type PodHandler interface {
-	Handler(ctx context.Context) (http.Handler, error)
+	Handler(requestInfo *genericapirequest.RequestInfo) (http.Handler, error)
 }
 
 type PodREST struct {
@@ -67,7 +66,6 @@ var _ PodHandler = &PodREST{}
 
 func NewPodREST(
 	f informermanager.FederatedInformerManager,
-	scheme *runtime.Scheme,
 	podLister cache.GenericLister,
 	minRequestTimeout time.Duration,
 ) *PodREST {
@@ -80,13 +78,8 @@ func NewPodREST(
 	}
 }
 
-func (p *PodREST) Handler(ctx context.Context) (http.Handler, error) {
-	requestInfo, found := genericapirequest.RequestInfoFrom(ctx)
-	if !found {
-		return nil, errors.New("no RequestInfo found in the context")
-	}
-
-	scope := p.newScoper(requestInfoResolver)
+func (p *PodREST) Handler(requestInfo *genericapirequest.RequestInfo) (http.Handler, error) {
+	scope := p.newScoper()
 
 	switch requestInfo.Verb {
 	case "get":
@@ -101,12 +94,11 @@ func (p *PodREST) Handler(ctx context.Context) (http.Handler, error) {
 	}
 }
 
-func (p *PodREST) newScoper(r *genericapirequest.RequestInfoFactory) *handlers.RequestScope {
+func (p *PodREST) newScoper() *handlers.RequestScope {
 	return &handlers.RequestScope{
-		Namer: &ContextBasedNaming{
+		Namer: &handlers.ContextBasedNaming{
 			Namer:         runtime.Namer(meta.NewAccessor()),
 			ClusterScoped: false,
-			resolver:      r,
 		},
 		Serializer:       codecs,
 		Kind:             corev1.SchemeGroupVersion.WithKind("Pod"),

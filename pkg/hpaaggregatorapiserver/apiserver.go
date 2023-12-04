@@ -18,7 +18,6 @@ package hpaaggregatorapiserver
 
 import (
 	"context"
-	"path"
 	"time"
 
 	"k8s.io/apimachinery/pkg/apis/meta/internalversion"
@@ -37,11 +36,9 @@ import (
 	"k8s.io/klog/v2"
 	autoscalinginstall "k8s.io/kubernetes/pkg/apis/autoscaling/install"
 	apiinstall "k8s.io/kubernetes/pkg/apis/core/install"
-	custommetricsv1beta1 "k8s.io/metrics/pkg/apis/custom_metrics/v1beta1"
-	custommetricsv1beta2 "k8s.io/metrics/pkg/apis/custom_metrics/v1beta2"
+	cminstall "k8s.io/metrics/pkg/apis/custom_metrics/install"
+	eminstall "k8s.io/metrics/pkg/apis/external_metrics/install"
 	metricsinstall "k8s.io/metrics/pkg/apis/metrics/install"
-	metricsv1beta1 "k8s.io/metrics/pkg/apis/metrics/v1beta1"
-	custommetricsscheme "k8s.io/metrics/pkg/client/custom_metrics/scheme"
 	"sigs.k8s.io/custom-metrics-apiserver/pkg/apiserver/installer"
 
 	hpaaggregatorapi "github.com/kubewharf/kubeadmiral/pkg/apis/hpaaggregator"
@@ -49,10 +46,13 @@ import (
 	"github.com/kubewharf/kubeadmiral/pkg/apis/hpaaggregator/v1alpha1"
 	fedclient "github.com/kubewharf/kubeadmiral/pkg/client/clientset/versioned"
 	fedinformers "github.com/kubewharf/kubeadmiral/pkg/client/informers/externalversions"
+	"github.com/kubewharf/kubeadmiral/pkg/hpaaggregatorapiserver/aggregatedlister"
 	"github.com/kubewharf/kubeadmiral/pkg/hpaaggregatorapiserver/serverconfig"
 	"github.com/kubewharf/kubeadmiral/pkg/registry"
 	"github.com/kubewharf/kubeadmiral/pkg/registry/hpaaggregator/aggregation"
 	metricsaggregator "github.com/kubewharf/kubeadmiral/pkg/registry/hpaaggregator/aggregation/metrics"
+	"github.com/kubewharf/kubeadmiral/pkg/registry/hpaaggregator/aggregation/metrics/custom"
+	"github.com/kubewharf/kubeadmiral/pkg/registry/hpaaggregator/aggregation/metrics/resource"
 	"github.com/kubewharf/kubeadmiral/pkg/util/informermanager"
 )
 
@@ -71,7 +71,8 @@ func init() {
 	apiinstall.Install(Scheme)
 	autoscalinginstall.Install(Scheme)
 	metricsinstall.Install(Scheme)
-	custommetricsscheme.AddToScheme(Scheme)
+	cminstall.Install(Scheme)
+	eminstall.Install(Scheme)
 
 	// we need custom conversion functions to list resources with options
 	utilruntime.Must(installer.RegisterConversions(Scheme))
@@ -94,7 +95,6 @@ func init() {
 
 // ExtraConfig holds custom apiserver config
 type ExtraConfig struct {
-	// Place you custom config here.
 	APIServerEndpoint string
 
 	KubeClientset    kubeclient.Interface
@@ -105,6 +105,10 @@ type ExtraConfig struct {
 	FederatedInformerManager informermanager.FederatedInformerManager
 	FedInformerFactory       fedinformers.SharedInformerFactory
 	RequestInfoResolver      *serverconfig.RequestInfoResolver
+
+	DisableResourceMetrics bool
+	DisableCustomMetrics   bool
+	DiscoveryInterval      time.Duration
 }
 
 // Config defines the config for the apiserver
@@ -155,62 +159,68 @@ func (c completedConfig) New() (*Server, error) {
 	}
 
 	apiGroupInfo := genericapiserver.NewDefaultAPIGroupInfo(hpaaggregatorapi.GroupName, Scheme, ParameterCodec, Codecs)
+	podLister := aggregatedlister.NewPodLister(c.ExtraConfig.FederatedInformerManager)
 
 	v1alpha1storage := map[string]rest.Storage{}
-	//v1alpha1storage["externalmetricadaptors"] = registry.RESTInPeace(externalmetricadaptor.NewREST(Scheme, c.GenericConfig.RESTOptionsGetter))
 	aggregationAPI, err := aggregation.NewREST(
-		c.ExtraConfig.DynamicClientset,
-		c.ExtraConfig.FedClientset,
 		c.ExtraConfig.FederatedInformerManager,
-		Scheme,
-		c.ExtraConfig.APIServerEndpoint,
-		"",
+		podLister,
 		c.ExtraConfig.RestConfig,
 		time.Duration(c.GenericConfig.MinRequestTimeout)*time.Second,
-		klog.Background().WithValues("api", "aggregation"),
+		c.ExtraConfig.DisableResourceMetrics,
+		c.ExtraConfig.DisableCustomMetrics,
+		genericServer.Handler.FullHandlerChain,
+		klog.Background().WithValues("api", "aggregations"),
 	)
-	v1alpha1storage["aggregation"] = registry.RESTInPeace(aggregationAPI, err)
+	v1alpha1storage["aggregations"] = registry.RESTInPeace(aggregationAPI, err)
 	apiGroupInfo.VersionedResourcesStorageMap[v1alpha1.SchemeGroupVersion.Version] = v1alpha1storage
 
 	if err := s.GenericAPIServer.InstallAPIGroup(&apiGroupInfo); err != nil {
 		return nil, err
 	}
 
-	root := path.Join("/apis", v1alpha1.SchemeGroupVersion.Group, v1alpha1.SchemeGroupVersion.Version, "aggregation")
+	if !c.ExtraConfig.DisableResourceMetrics {
+		nodeLister := aggregatedlister.NewNodeLister(c.ExtraConfig.FederatedInformerManager)
+		metricsGetter := resource.NewMetricsGetter(
+			c.ExtraConfig.FederatedInformerManager,
+			klog.Background().WithValues("component", "resource-metrics-getter"),
+		)
 
-	if err := metricsaggregator.InstallResourceMetrics(
-		root,
-		c.GenericConfig,
-		Scheme,
-		ParameterCodec,
-		Codecs,
-		aggregationAPI.MetricsGetter,
-		aggregationAPI.PodLister,
-		aggregationAPI.NodeLister,
-		nil,
-		genericServer,
-	); err != nil {
-		return nil, err
+		apiGroupInfo := metricsaggregator.BuildResourceMetrics(
+			Scheme,
+			ParameterCodec,
+			Codecs,
+			metricsGetter,
+			podLister,
+			nodeLister,
+			nil,
+		)
+
+		if err := s.GenericAPIServer.InstallAPIGroup(&apiGroupInfo); err != nil {
+			klog.ErrorS(err, "Unable to install resource metrics provider")
+			return nil, err
+		}
 	}
 
-	if err := metricsaggregator.InstallCustomMetricsAPI(
-		root,
-		Scheme,
-		ParameterCodec,
-		Codecs,
-		genericServer,
-		c.ExtraConfig.FederatedInformerManager,
-		klog.Background().WithValues("api", "custom-metrics"),
-	); err != nil {
-		return nil, err
-	}
+	if !c.ExtraConfig.DisableCustomMetrics {
+		metricsProvider := custom.NewCustomMetricsProvider(
+			c.ExtraConfig.FederatedInformerManager,
+			c.ExtraConfig.DiscoveryInterval,
+			klog.Background().WithValues("component", "custom-metrics-provider"),
+		)
+		metricsProvider.RunUntil(genericapiserver.SetupSignalHandler())
 
-	c.ExtraConfig.RequestInfoResolver.InsertCustomPrefixes(serverconfig.NewDefaultResolver(root))
-	c.ExtraConfig.RequestInfoResolver.InsertConnecterBlacklist(
-		path.Join(root, "apis", metricsv1beta1.SchemeGroupVersion.String()),
-		path.Join(root, "apis", custommetricsv1beta1.SchemeGroupVersion.String()),
-		path.Join(root, "apis", custommetricsv1beta2.SchemeGroupVersion.String()),
-	)
+		if err := metricsaggregator.InstallCustomMetricsAPI(
+			Scheme,
+			ParameterCodec,
+			Codecs,
+			metricsProvider,
+			genericServer,
+		); err != nil {
+			klog.ErrorS(err, "Unable to install custom metrics provider")
+			return nil, err
+		}
+	}
 
 	return s, nil
 }
