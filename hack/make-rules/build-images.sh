@@ -48,7 +48,7 @@ if [[ ${#arch_array[@]} -gt 1 ]]; then
   # If you build images for multiple platforms at one time, the image tag will be added with the architecture name.
   for arch in ${arch_array[@]}; do
     for component in "${components[@]}"; do
-      if [[ ${TARGET_NAME} == "all" || ${TARGET_NAME} == ${component} ]]; then
+      if [[ ${TARGET_NAME} =~ "all" || ${TARGET_NAME} =~ ${component} ]]; then
         build_args="${DOCKER_BUILD_ARGS} --build-arg COMPENT=${component}"
         build::build_images "${REGISTRY}/${component}:${TAG}-${arch}" ${DOCKERFILE_PATH} "linux/${arch}" ${OUTPUT_TYPE} "${build_args}"
       fi
@@ -56,7 +56,7 @@ if [[ ${#arch_array[@]} -gt 1 ]]; then
   done
 else
   for component in "${components[@]}"; do
-    if [[ ${TARGET_NAME} == "all" || ${TARGET_NAME} == ${component} ]]; then
+    if [[ ${TARGET_NAME} =~ "all" || ${TARGET_NAME} =~ ${component} ]]; then
       build_args="${DOCKER_BUILD_ARGS} --build-arg COMPENT=${component}"
       build::build_images "${REGISTRY}/${component}:${TAG}" ${DOCKERFILE_PATH} "${PLATFORMS}" ${OUTPUT_TYPE} "${build_args}"
     fi

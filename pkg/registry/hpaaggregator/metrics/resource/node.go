@@ -15,6 +15,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apiserver/pkg/registry/rest"
 	v1listers "k8s.io/client-go/listers/core/v1"
+	"k8s.io/component-base/metrics/legacyregistry"
 	"k8s.io/klog/v2"
 	"k8s.io/metrics/pkg/apis/metrics"
 	_ "k8s.io/metrics/pkg/apis/metrics/install"
@@ -35,6 +36,13 @@ var _ rest.Scoper = &NodeMetrics{}
 var _ rest.TableConvertor = &NodeMetrics{}
 
 func NewNodeMetrics(groupResource schema.GroupResource, metrics NodeMetricsGetter, nodeLister v1listers.NodeLister, nodeSelector []labels.Requirement) *NodeMetrics {
+	registerIntoLegacyRegistryOnce.Do(func() {
+		err := RegisterAPIMetrics(legacyregistry.Register)
+		if err != nil {
+			klog.ErrorS(err, "Failed to register resource metrics")
+		}
+	})
+
 	return &NodeMetrics{
 		groupResource: groupResource,
 		metrics:       metrics,

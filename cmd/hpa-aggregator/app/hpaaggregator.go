@@ -25,6 +25,7 @@ func Run(ctx context.Context, opts *options.Options) error {
 		config.ExtraConfig.Run(ctx)
 		return nil
 	})
+	server.GenericAPIServer.AddReadyzChecks()
 
 	return server.GenericAPIServer.PrepareRun().Run(ctx.Done())
 }

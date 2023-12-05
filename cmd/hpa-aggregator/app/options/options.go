@@ -71,17 +71,8 @@ type Options struct {
 	KubeAPIQPS   float32
 	KubeAPIBurst int
 
-	EnableProfiling bool
-	LogFile         string
-	LogVerbosity    int
-	KlogVerbosity   int
-
 	MaxPodListers    int64
 	EnablePodPruning bool
-
-	PrometheusMetrics bool
-	PrometheusAddr    string
-	PrometheusPort    uint16
 
 	DisableResourceMetrics bool
 	DisableCustomMetrics   bool
@@ -106,24 +97,24 @@ func NewOptions() *Options {
 
 //nolint:lll
 func (o *Options) AddFlags(flags *pflag.FlagSet) {
-	flags.StringVar(&o.Master, "master", "", "The address of the host Kubernetes cluster.")
-	flags.Float32Var(&o.KubeAPIQPS, "kube-api-qps", 500, "The maximum QPS from each Kubernetes client.")
-	flags.IntVar(&o.KubeAPIBurst, "kube-api-burst", 1000, "The maximum burst for throttling requests from each Kubernetes client.")
-
-	flags.BoolVar(&o.EnableProfiling, "enable-profiling", false, "Enable profiling for the controller manager.")
+	flags.StringVar(&o.Master, "master", "",
+		"The address of the host Kubernetes cluster.")
+	flags.Float32Var(&o.KubeAPIQPS, "kube-api-qps", 500,
+		"The maximum QPS from each Kubernetes client.")
+	flags.IntVar(&o.KubeAPIBurst, "kube-api-burst", 1000,
+		"The maximum burst for throttling requests from each Kubernetes client.")
 
 	//flags.Int64Var(&o.MaxPodListers, "max-pod-listers", 0, "The maximum number of concurrent pod listing requests to member clusters. "+
 	//	"A non-positive number means unlimited, but may increase the instantaneous memory usage.")
 	//flags.BoolVar(&o.EnablePodPruning, "enable-pod-pruning", false, "Enable pod pruning for pod informer. "+
 	//	"Enabling this can reduce memory usage of the pod informer, but will disable pod propagation.")
 
-	flags.BoolVar(&o.PrometheusMetrics, "export-prometheus", true, "Whether to expose metrics through a prometheus endpoint")
-	flags.StringVar(&o.PrometheusAddr, "prometheus-addr", "", "Prometheus collector address")
-	flags.Uint16Var(&o.PrometheusPort, "prometheus-port", 9090, "Prometheus collector port")
-
-	flags.BoolVar(&o.DisableResourceMetrics, "disable-resource-metrics", false, "Whether to disable resource metrics provider")
-	flags.BoolVar(&o.DisableCustomMetrics, "disable-custom-metrics", false, "Whether to disable custom metrics provider")
-	flags.DurationVar(&o.DiscoveryInterval, "discovery-interval", o.DiscoveryInterval, "Interval at which to refresh API discovery information")
+	flags.BoolVar(&o.DisableResourceMetrics, "disable-resource-metrics", false,
+		"Whether to disable resource metrics provider")
+	flags.BoolVar(&o.DisableCustomMetrics, "disable-custom-metrics", false,
+		"Whether to disable custom metrics provider")
+	flags.DurationVar(&o.DiscoveryInterval, "discovery-interval", o.DiscoveryInterval,
+		"Interval at which to refresh custom-metrics API discovery information from member clusters")
 
 	utilfeature.DefaultMutableFeatureGate.AddFlag(flags)
 
@@ -155,9 +146,6 @@ func (o *Options) Config() (*apiserver.Config, error) {
 		return nil, fmt.Errorf("error creating self-signed certificates: %v", err)
 	}
 
-	// we don't authorize api path, 因为我们会使用用户的身份访问，由核心APIServer可以决定这些请求是否可以被接受
-	o.RecommendedOptions.Authorization.WithAlwaysAllowPaths("/api", "/api/*", "/apis", "/apis/*")
-
 	o.RecommendedOptions.ExtraAdmissionInitializers = func(c *genericapiserver.RecommendedConfig) ([]admission.PluginInitializer, error) {
 		return []admission.PluginInitializer{}, nil
 	}
@@ -188,8 +176,6 @@ func (o *Options) Config() (*apiserver.Config, error) {
 		return nil, err
 	}
 
-	//RequestInfoResolver := serverconfig.NewRequestInfoResolver(&serverConfig.Config)
-	//serverConfig.RequestInfoResolver = RequestInfoResolver
 	serverConfig.LongRunningFunc = filters.BasicLongRunningRequestCheck(
 		sets.NewString("watch", "proxy"),
 		sets.NewString("attach", "exec", "proxy", "log", "portforward"),
@@ -246,17 +232,15 @@ func (o *Options) Config() (*apiserver.Config, error) {
 	config := &apiserver.Config{
 		GenericConfig: serverConfig,
 		ExtraConfig: &apiserver.ExtraConfig{
-			APIServerEndpoint:        restConfig.Host,
 			KubeClientset:            kubeClientset,
 			DynamicClientset:         dynamicClientset,
 			FedClientset:             fedClientset,
 			FedInformerFactory:       fedInformerFactory,
 			FederatedInformerManager: federatedInformerManager,
-			//RequestInfoResolver:      RequestInfoResolver,
-			RestConfig:             restConfig,
-			DisableResourceMetrics: o.DisableResourceMetrics,
-			DisableCustomMetrics:   o.DisableCustomMetrics,
-			DiscoveryInterval:      o.DiscoveryInterval,
+			RestConfig:               restConfig,
+			DisableResourceMetrics:   o.DisableResourceMetrics,
+			DisableCustomMetrics:     o.DisableCustomMetrics,
+			DiscoveryInterval:        o.DiscoveryInterval,
 		},
 	}
 	return config, nil

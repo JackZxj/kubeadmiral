@@ -43,18 +43,13 @@ import (
 )
 
 type REST struct {
-	restConfig *restclient.Config
-
+	restConfig               *restclient.Config
 	federatedInformerManager informermanager.FederatedInformerManager
 
 	resolver genericapirequest.RequestInfoResolver
 
 	podLister  cache.GenericLister
 	podHandler forward.PodHandler
-
-	disableResourceMetrics bool
-	disableCustomMetrics   bool
-	redirector             http.Handler
 
 	logger klog.Logger
 }
@@ -71,9 +66,6 @@ func NewREST(
 	podLister cache.GenericLister,
 	config *restclient.Config,
 	minRequestTimeout time.Duration,
-	disableResourceMetrics bool,
-	disableCustomMetrics bool,
-	s http.Handler,
 	logger klog.Logger,
 ) (*REST, error) {
 	podHandler := forward.NewPodREST(
@@ -93,9 +85,6 @@ func NewREST(
 		resolver:                 resolver,
 		podLister:                podLister,
 		podHandler:               podHandler,
-		disableResourceMetrics:   disableResourceMetrics,
-		disableCustomMetrics:     disableCustomMetrics,
-		redirector:               s,
 		logger:                   logger,
 	}, nil
 }
@@ -155,13 +144,8 @@ func (r *REST) Connect(ctx context.Context, _ string, _ runtime.Object, resp res
 				err = errors.New("can't proxy to self")
 			case isRequestForPod(proxyInfo):
 				proxyHandler, err = r.podHandler.Handler(proxyInfo)
-			case !r.disableResourceMetrics && isRequestForResourceMetrics(proxyInfo) ||
-				!r.disableCustomMetrics && isRequestForCustomMetrics(proxyInfo):
-				// if we have provided an API for ResourceMetrics or CustomMetrics, we can serve it directly
-				// without a proxy. And we have to forget what we have done before, so we use a new context.
-				req = req.Clone(context.Background())
-				proxyHandler = r.redirector
 			default:
+				// TODO: if we provide an API for ResourceMetrics or CustomMetrics, we can serve it directly without proxy
 				proxyHandler, err = forward.NewForwardHandler(proxyInfo, resp, r.restConfig, r.isRequestForHPA(proxyInfo))
 			}
 

@@ -31,6 +31,7 @@ import (
 	genericapirequest "k8s.io/apiserver/pkg/endpoints/request"
 	"k8s.io/apiserver/pkg/registry/rest"
 	"k8s.io/client-go/tools/cache"
+	"k8s.io/component-base/metrics/legacyregistry"
 	"k8s.io/klog/v2"
 	"k8s.io/metrics/pkg/apis/metrics"
 	_ "k8s.io/metrics/pkg/apis/metrics/install"
@@ -50,6 +51,13 @@ var _ rest.TableConvertor = &PodMetrics{}
 var _ rest.Scoper = &PodMetrics{}
 
 func NewPodMetrics(groupResource schema.GroupResource, metrics PodMetricsGetter, podLister cache.GenericLister) *PodMetrics {
+	registerIntoLegacyRegistryOnce.Do(func() {
+		err := RegisterAPIMetrics(legacyregistry.Register)
+		if err != nil {
+			klog.ErrorS(err, "Failed to register resource metrics")
+		}
+	})
+
 	return &PodMetrics{
 		groupResource: groupResource,
 		metrics:       metrics,

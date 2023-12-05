@@ -46,7 +46,7 @@ function build::build_multiplatform_binaries() {
     count=0
     for component in ${BINARY_TARGET_SOURCE[@]};do
       IFS="=" read -ra info <<< "${component}"
-      if [[ ${target} == "all" || ${target} == ${info[0]} ]]; then
+      if [[ ${target} =~ "all" || ${target} =~ ${info[0]} ]]; then
         build::build_binary "${info[0]}" "${platform}" "${output_dir}" "${info[1]}"
         count=$((count + 1))
       fi

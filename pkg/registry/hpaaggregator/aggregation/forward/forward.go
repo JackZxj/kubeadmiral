@@ -28,7 +28,6 @@ import (
 	utilnet "k8s.io/apimachinery/pkg/util/net"
 	"k8s.io/apimachinery/pkg/util/proxy"
 	"k8s.io/apiserver/pkg/audit"
-	"k8s.io/apiserver/pkg/authentication/user"
 	"k8s.io/apiserver/pkg/endpoints/handlers/responsewriters"
 	"k8s.io/apiserver/pkg/endpoints/request"
 	"k8s.io/apiserver/pkg/registry/rest"
@@ -64,20 +63,10 @@ func NewForwardHandler(
 	isHPA bool,
 ) (http.Handler, error) {
 	return http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
-		requester, exist := request.UserFrom(req.Context())
-		if !exist {
-			responsewriters.InternalError(rw, req, errors.New("no user found for request"))
+		adminConfig, err := NewConfigWithImpersonate(req.Context(), adminConfig)
+		if err != nil {
+			responsewriters.InternalError(rw, req, err)
 			return
-		}
-
-		adminConfig := restclient.CopyConfig(adminConfig)
-		//req.Header.Set(authenticationv1.ImpersonateUserHeader, requester.GetName())
-		adminConfig.Impersonate.UserName = requester.GetName()
-		for _, group := range requester.GetGroups() {
-			if group != user.AllAuthenticated && group != user.AllUnauthenticated {
-				//req.Header.Add(authenticationv1.ImpersonateGroupHeader, group)
-				adminConfig.Impersonate.Groups = append(adminConfig.Impersonate.Groups, group)
-			}
 		}
 
 		// we use admin config and ImpersonateUser to forward

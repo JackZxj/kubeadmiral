@@ -1,6 +1,8 @@
 package resource
 
 import (
+	"sync"
+
 	"k8s.io/component-base/metrics"
 )
 
@@ -15,6 +17,8 @@ var (
 		},
 		[]string{},
 	)
+
+	registerIntoLegacyRegistryOnce sync.Once
 )
 
 // RegisterAPIMetrics registers a histogram metric for the freshness of

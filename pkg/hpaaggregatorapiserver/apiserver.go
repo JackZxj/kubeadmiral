@@ -47,12 +47,10 @@ import (
 	fedclient "github.com/kubewharf/kubeadmiral/pkg/client/clientset/versioned"
 	fedinformers "github.com/kubewharf/kubeadmiral/pkg/client/informers/externalversions"
 	"github.com/kubewharf/kubeadmiral/pkg/hpaaggregatorapiserver/aggregatedlister"
-	"github.com/kubewharf/kubeadmiral/pkg/hpaaggregatorapiserver/serverconfig"
-	"github.com/kubewharf/kubeadmiral/pkg/registry"
 	"github.com/kubewharf/kubeadmiral/pkg/registry/hpaaggregator/aggregation"
-	metricsaggregator "github.com/kubewharf/kubeadmiral/pkg/registry/hpaaggregator/aggregation/metrics"
-	"github.com/kubewharf/kubeadmiral/pkg/registry/hpaaggregator/aggregation/metrics/custom"
-	"github.com/kubewharf/kubeadmiral/pkg/registry/hpaaggregator/aggregation/metrics/resource"
+	"github.com/kubewharf/kubeadmiral/pkg/registry/hpaaggregator/metrics"
+	"github.com/kubewharf/kubeadmiral/pkg/registry/hpaaggregator/metrics/custom"
+	"github.com/kubewharf/kubeadmiral/pkg/registry/hpaaggregator/metrics/resource"
 	"github.com/kubewharf/kubeadmiral/pkg/util/informermanager"
 )
 
@@ -95,8 +93,6 @@ func init() {
 
 // ExtraConfig holds custom apiserver config
 type ExtraConfig struct {
-	APIServerEndpoint string
-
 	KubeClientset    kubeclient.Interface
 	DynamicClientset dynamicclient.Interface
 	FedClientset     fedclient.Interface
@@ -104,7 +100,6 @@ type ExtraConfig struct {
 
 	FederatedInformerManager informermanager.FederatedInformerManager
 	FedInformerFactory       fedinformers.SharedInformerFactory
-	RequestInfoResolver      *serverconfig.RequestInfoResolver
 
 	DisableResourceMetrics bool
 	DisableCustomMetrics   bool
@@ -167,12 +162,13 @@ func (c completedConfig) New() (*Server, error) {
 		podLister,
 		c.ExtraConfig.RestConfig,
 		time.Duration(c.GenericConfig.MinRequestTimeout)*time.Second,
-		c.ExtraConfig.DisableResourceMetrics,
-		c.ExtraConfig.DisableCustomMetrics,
-		genericServer.Handler.FullHandlerChain,
 		klog.Background().WithValues("api", "aggregations"),
 	)
-	v1alpha1storage["aggregations"] = registry.RESTInPeace(aggregationAPI, err)
+	if err != nil {
+		klog.ErrorS(err, "Unable to new aggregation rest")
+		return nil, err
+	}
+	v1alpha1storage["aggregations"] = aggregationAPI
 	apiGroupInfo.VersionedResourcesStorageMap[v1alpha1.SchemeGroupVersion.Version] = v1alpha1storage
 
 	if err := s.GenericAPIServer.InstallAPIGroup(&apiGroupInfo); err != nil {
@@ -186,7 +182,7 @@ func (c completedConfig) New() (*Server, error) {
 			klog.Background().WithValues("component", "resource-metrics-getter"),
 		)
 
-		apiGroupInfo := metricsaggregator.BuildResourceMetrics(
+		apiGroupInfo := metrics.BuildResourceMetrics(
 			Scheme,
 			ParameterCodec,
 			Codecs,
@@ -210,7 +206,7 @@ func (c completedConfig) New() (*Server, error) {
 		)
 		metricsProvider.RunUntil(genericapiserver.SetupSignalHandler())
 
-		if err := metricsaggregator.InstallCustomMetricsAPI(
+		if err := metrics.InstallCustomMetricsAPI(
 			Scheme,
 			ParameterCodec,
 			Codecs,
