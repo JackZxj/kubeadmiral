@@ -25,6 +25,14 @@ type FakeFederatedInformerManager struct {
 
 	ReadyClusters              []*fedcorev1a1.FederatedCluster
 	ReadyClusterDynamicClients map[string]dynamic.Interface
+	NodeListers                map[string]FakeLister
+	PodListers                 map[string]FakeLister
+}
+
+type FakeLister struct {
+	PodLister  corev1listers.PodLister
+	NodeLister corev1listers.NodeLister
+	Synced     bool
 }
 
 func (f *FakeFederatedInformerManager) AddEventHandlerGenerator(generator *informermanager.EventHandlerGenerator) error {
@@ -63,13 +71,13 @@ func (f *FakeFederatedInformerManager) AddPodEventHandler(handler *informermanag
 }
 
 func (f *FakeFederatedInformerManager) GetPodLister(cluster string) (lister corev1listers.PodLister, informerSynced cache.InformerSynced, exists bool) {
-	//TODO implement me
-	panic("implement me")
+	l, exists := f.PodListers[cluster]
+	return l.PodLister, func() bool { return l.Synced }, exists
 }
 
 func (f *FakeFederatedInformerManager) GetNodeLister(cluster string) (lister corev1listers.NodeLister, informerSynced cache.InformerSynced, exists bool) {
-	//TODO implement me
-	panic("implement me")
+	l, exists := f.NodeListers[cluster]
+	return l.NodeLister, func() bool { return l.Synced }, exists
 }
 
 func (f *FakeFederatedInformerManager) GetFederatedTypeConfigLister() v1alpha1.FederatedTypeConfigLister {
