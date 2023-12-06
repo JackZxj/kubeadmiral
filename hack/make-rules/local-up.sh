@@ -130,6 +130,7 @@ echo "Waiting for the meta cluster to be ready..."
 util::check_clusters_ready "${META_CLUSTER_KUBECONFIG}" "${META_CLUSTER_NAME}"
 
 kind load docker-image "ghcr.io/kubewharf/kubeadmiral-controller-manager:latest" --name="${META_CLUSTER_NAME}"
+kind load docker-image "ghcr.io/kubewharf/kubeadmiral-hpa-aggregator:latest" --name="${META_CLUSTER_NAME}"
 
 # 4. Install the KubeAdmiral control-plane components
 bash "${REPO_ROOT}/hack/make-rules/deploy-kubeadmiral.sh" "${META_CLUSTER_KUBECONFIG}" "${META_CLUSTER_NAME}" "${HOST_CLUSTER_KUBECONFIG}"
