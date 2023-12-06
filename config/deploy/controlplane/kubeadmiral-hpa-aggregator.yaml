@@ -88,8 +88,8 @@ spec:
         - command:
             - kube-controller-manager
             - --allocate-node-cidrs=true
-            - --authentication-kubeconfig=/etc/kubeconfig
-            - --authorization-kubeconfig=/etc/kubeconfig
+            - --authentication-kubeconfig=/etc/hpa-kubeconfig
+            - --authorization-kubeconfig=/etc/hpa-kubeconfig
             - --bind-address=0.0.0.0
             - --client-ca-file=/etc/kubeadmiral/pki/ca.crt
             - --cluster-cidr=10.244.0.0/16
@@ -100,8 +100,11 @@ spec:
             - --kubeconfig=/etc/hpa-kubeconfig
             - --leader-elect=true
             - --leader-elect-resource-name=hpa-controller
+            - --requestheader-client-ca-file=/etc/kubeadmiral/pki/front-proxy-ca.crt
             - --root-ca-file=/etc/kubeadmiral/pki/ca.crt
             - --service-cluster-ip-range=10.96.0.0/12
+            - --service-account-private-key-file=/etc/kubeadmiral/pki/kubeadmiral.key
+            - --use-service-account-credentials=true
             - --v=4
           image: registry.k8s.io/kube-controller-manager:v1.20.15
           imagePullPolicy: IfNotPresent
@@ -127,15 +130,7 @@ spec:
               subPath: hpa-kubeconfig
               name: kubeconfig
       dnsPolicy: ClusterFirstWithHostNet
-      enableServiceLinks: true
-      hostNetwork: true
-      preemptionPolicy: PreemptLowerPriority
-      priority: 2000001000
-      priorityClassName: system-node-critical
       restartPolicy: Always
-      schedulerName: default-scheduler
-      securityContext: {}
-      terminationGracePeriodSeconds: 30
       tolerations:
         - effect: NoExecute
           operator: Exists
@@ -152,99 +147,13 @@ kind: Service
 metadata:
   name: kubeadmiral-hpa-aggregator
   namespace: kubeadmiral-system
+  labels:
+    app: kubeadmiral-hpa-aggregator
+    apiserver: "true"
 spec:
-  externalName: kubeadmiral-hpa-aggregator
   ports:
     - port: 443
       protocol: TCP
       targetPort: 443
-  sessionAffinity: None
-  type: ExternalName
----
-apiVersion: apiregistration.k8s.io/v1
-kind: APIService
-metadata:
-  labels:
-    apiserver: "true"
+  selector:
     app: kubeadmiral-hpa-aggregator
-  name: v1beta1.metrics.k8s.io
-spec:
-  group: metrics.k8s.io
-  groupPriorityMinimum: 2000
-  insecureSkipTLSVerify: true
-  service:
-    name: kubeadmiral-hpa-aggregator
-    namespace: kubeadmiral-system
-    port: 443
-  version: v1beta1
-  versionPriority: 1
----
-apiVersion: apiregistration.k8s.io/v1
-kind: APIService
-metadata:
-  labels:
-    apiserver: "true"
-    app: kubeadmiral-hpa-aggregator
-  name: v1beta1.custom.metrics.k8s.io
-spec:
-  group: custom.metrics.k8s.io
-  groupPriorityMinimum: 2000
-  insecureSkipTLSVerify: true
-  service:
-    name: kubeadmiral-hpa-aggregator
-    namespace: kubeadmiral-system
-    port: 443
-  version: v1beta1
-  versionPriority: 1
----
-apiVersion: apiregistration.k8s.io/v1
-kind: APIService
-metadata:
-  labels:
-    apiserver: "true"
-    app: kubeadmiral-hpa-aggregator
-  name: v1alpha1.hpaaggregator.kubeadmiral.io
-spec:
-  group: hpaaggregator.kubeadmiral.io
-  groupPriorityMinimum: 2000
-  insecureSkipTLSVerify: true
-  service:
-    name: kubeadmiral-hpa-aggregator
-    namespace: kubeadmiral-system
-    port: 443
-  version: v1alpha1
-  versionPriority: 1
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRole
-metadata:
-  name: admiral-system:controller:horizontal-pod-autoscaler
-rules:
-  - apiGroups:
-      - hpaaggregator.kubeadmiral.io
-    resources:
-      - '*'
-    verbs:
-      - '*'
-  - apiGroups:
-      - coordination.k8s.io
-    resources:
-      - leases
-    verbs:
-      - '*'
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRoleBinding
-metadata:
-  name: admiral-system:controller:horizontal-pod-autoscaler
-roleRef:
-  apiGroup: rbac.authorization.k8s.io
-  kind: ClusterRole
-  name: admiral-system:controller:horizontal-pod-autoscaler
-subjects:
-  - apiGroup: rbac.authorization.k8s.io
-    kind: User
-    name: system:controller:horizontal-pod-autoscaler
-  - kind: ServiceAccount
-    name: horizontal-pod-autoscaler
-    namespace: kube-system
