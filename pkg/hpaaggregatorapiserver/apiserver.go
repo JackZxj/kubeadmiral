@@ -32,8 +32,6 @@ import (
 	kubeclient "k8s.io/client-go/kubernetes"
 	restclient "k8s.io/client-go/rest"
 	"k8s.io/klog/v2"
-	autoscalinginstall "k8s.io/kubernetes/pkg/apis/autoscaling/install"
-	apiinstall "k8s.io/kubernetes/pkg/apis/core/install"
 	cminstall "k8s.io/metrics/pkg/apis/custom_metrics/install"
 	eminstall "k8s.io/metrics/pkg/apis/external_metrics/install"
 	metricsinstall "k8s.io/metrics/pkg/apis/metrics/install"
@@ -64,8 +62,6 @@ var (
 
 func init() {
 	install.Install(Scheme)
-	apiinstall.Install(Scheme)
-	autoscalinginstall.Install(Scheme)
 	metricsinstall.Install(Scheme)
 	cminstall.Install(Scheme)
 	eminstall.Install(Scheme)

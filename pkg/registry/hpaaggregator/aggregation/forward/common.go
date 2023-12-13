@@ -26,14 +26,14 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/runtime/serializer"
+	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/apiserver/pkg/authentication/user"
 	"k8s.io/apiserver/pkg/endpoints/handlers"
 	"k8s.io/apiserver/pkg/endpoints/request"
 	restclient "k8s.io/client-go/rest"
-	apiinstall "k8s.io/kubernetes/pkg/apis/core/install"
-	"k8s.io/kubernetes/pkg/printers"
-	printersinternal "k8s.io/kubernetes/pkg/printers/internalversion"
-	printerstorage "k8s.io/kubernetes/pkg/printers/storage"
+
+	"github.com/kubewharf/kubeadmiral/pkg/lifted/kubernetes/pkg/printers"
+	printerstorage "github.com/kubewharf/kubeadmiral/pkg/lifted/kubernetes/pkg/printers/storage"
 )
 
 var (
@@ -51,7 +51,7 @@ var (
 	}
 
 	tableConvertor = printerstorage.TableConvertor{
-		TableGenerator: printers.NewTableGenerator().With(printersinternal.AddHandlers),
+		TableGenerator: printers.NewTableGenerator().With(AddHandlers),
 	}
 	scope = &handlers.RequestScope{
 		Namer: &handlers.ContextBasedNaming{
@@ -69,7 +69,8 @@ var (
 
 func init() {
 	metav1.AddToGroupVersion(scheme, schema.GroupVersion{Version: "v1"})
-	apiinstall.Install(scheme)
+	utilruntime.Must(corev1.AddToScheme(scheme))
+	utilruntime.Must(scheme.SetVersionPriority(corev1.SchemeGroupVersion))
 
 	scheme.AddUnversionedTypes(unversionedVersion, unversionedTypes...)
 }
